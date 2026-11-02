@@ -1,0 +1,141 @@
+{
+  "target": "selftest (all mock policies)",
+  "limit": 100,
+  "scorecards": [
+    {
+      "policy": "stateless",
+      "limit": 100,
+      "protocol": [
+        {
+          "check": "handshake returns a schema-valid ServerHello (v0.1.0 $def required fields)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "system/ping answers (liveness probe)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "toolCallRequest returns schema-valid AcsResult",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "check": "undeclared method is refused (JSON-RPC error)",
+          "ok": true
+        },
+        {
+          "check": "\u00a710 signature verification",
+          "ok": null,
+          "detail": "PENDING: ServerHello advertises no signature_algorithms_supported \u2014 this Guardian does not require \u00a710 signatures; a signed-envelope test still needs JCS/RFC-8785 pinned"
+        },
+        {
+          "check": "\u00a710.3 replay/timestamp rejection",
+          "ok": null,
+          "detail": "PENDING: ServerHello advertises skew_window_ms=30000; a timestamp outside that window and a replayed nonce should both be rejected \u2014 test to be built against the advertised window"
+        }
+      ],
+      "committed": {
+        "race": 120,
+        "continue": 110,
+        "retry": 80
+      },
+      "verdict": {
+        "race": "OVERSHOOT",
+        "continue": "LEAK",
+        "retry": "DOUBLE-SPEND"
+      }
+    },
+    {
+      "policy": "reserve-only",
+      "limit": 100,
+      "protocol": [
+        {
+          "check": "handshake returns a schema-valid ServerHello (v0.1.0 $def required fields)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "system/ping answers (liveness probe)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "toolCallRequest returns schema-valid AcsResult",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "check": "undeclared method is refused (JSON-RPC error)",
+          "ok": true
+        },
+        {
+          "check": "\u00a710 signature verification",
+          "ok": null,
+          "detail": "PENDING: ServerHello advertises no signature_algorithms_supported \u2014 this Guardian does not require \u00a710 signatures; a signed-envelope test still needs JCS/RFC-8785 pinned"
+        },
+        {
+          "check": "\u00a710.3 replay/timestamp rejection",
+          "ok": null,
+          "detail": "PENDING: ServerHello advertises skew_window_ms=30000; a timestamp outside that window and a replayed nonce should both be rejected \u2014 test to be built against the advertised window"
+        }
+      ],
+      "committed": {
+        "race": 80,
+        "continue": 110,
+        "retry": 80
+      },
+      "verdict": {
+        "race": "HOLD",
+        "continue": "LEAK",
+        "retry": "DOUBLE-SPEND"
+      }
+    },
+    {
+      "policy": "holding",
+      "limit": 100,
+      "protocol": [
+        {
+          "check": "handshake returns a schema-valid ServerHello (v0.1.0 $def required fields)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "system/ping answers (liveness probe)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "toolCallRequest returns schema-valid AcsResult",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "check": "undeclared method is refused (JSON-RPC error)",
+          "ok": true
+        },
+        {
+          "check": "\u00a710 signature verification",
+          "ok": null,
+          "detail": "PENDING: ServerHello advertises no signature_algorithms_supported \u2014 this Guardian does not require \u00a710 signatures; a signed-envelope test still needs JCS/RFC-8785 pinned"
+        },
+        {
+          "check": "\u00a710.3 replay/timestamp rejection",
+          "ok": null,
+          "detail": "PENDING: ServerHello advertises skew_window_ms=30000; a timestamp outside that window and a replayed nonce should both be rejected \u2014 test to be built against the advertised window"
+        }
+      ],
+      "committed": {
+        "race": 80,
+        "continue": 40,
+        "retry": 40
+      },
+      "verdict": {
+        "race": "HOLD",
+        "continue": "HOLD",
+        "retry": "HOLD"
+      }
+    }
+  ]
+}
