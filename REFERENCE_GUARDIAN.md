@@ -2,7 +2,7 @@
 
 The suite is the instrument; the reference Guardian (Microsoft AGT behind the ACS wire contract, TypeScript on Bun) is a target. Nothing here needs Bun on your host — stand the Guardian up in a disposable container and point the suite (plain Python) at it.
 
-> Note on scope: the AGT reference Guardian is a governance toolkit, not a §5.1 budget enforcer. Pointing Layer B's cumulative-grant scenarios at it tests whether it enforces that invariant at all — a result either way, and the honest thing to report. Layer A (protocol) applies to it directly.
+> Note on scope: the AGT reference Guardian is a governance toolkit, not a cumulative-grant budget enforcer. Pointing Layer B's scenarios at it tests whether it enforces that invariant at all — a result either way, and the honest thing to report. Layer A (protocol) applies to it directly.
 
 ## Isolated run (Docker)
 
@@ -29,4 +29,4 @@ The repo's `reference-implementations/agt/` README is authoritative for the exac
 ## What to capture for the record
 
 - Layer A: which protocol checks the reference Guardian passes.
-- Layer B: its invariant scorecard. If it returns `allow` on the third concurrent `consume(40)`, the suite records the overshoot from the world ledger — the §5.1 gap, measured against the reference implementation itself. If it has no cumulative-grant policy at all, the suite reports `N/A` (nothing executed), never a misleading `HOLD`.
+- Layer B: its invariant scorecard. If it returns `allow` on the third concurrent `consume(40)`, the suite records the overshoot from the world ledger — the cumulative-grant gap, measured against the reference implementation itself. If it has no cumulative-grant policy at all, the suite reports `N/A` (nothing executed), never a misleading `HOLD`.

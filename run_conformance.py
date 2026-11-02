@@ -17,7 +17,7 @@ launched mock (--policy):
     property. We drive adversarial steps/toolCallRequest sequences for a shared 100-unit
     grant and measure, from an independent world ledger (not the Guardian's own books),
     whether the committed total ever exceeded the grant. Three scenarios, straight from
-    the AIMM Pillar 2 §5.1 discussion:
+    the delegated-authority cumulative-limit case (OWASP Agentic ASI03):
        race       - three concurrent consume(40) against a limit of 100
        continue   - one consume(40), its ack lost, then a later consume(70)
        retry      - one consume(40), its ack lost, then the same operation retried

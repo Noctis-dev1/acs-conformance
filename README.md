@@ -3,7 +3,7 @@
 An independent, language-independent conformance suite for OWASP **Agent Control Standard (ACS)** v0.1.0 Guardians. It points at any Guardian over its HTTP endpoint and asks two questions:
 
 1. **Protocol conformance (Layer A)** — does the Guardian speak ACS correctly? Handshake/ServerHello, schema-valid decision envelopes, refusal of undeclared methods, `system/ping`, and (pending the §10 canonicalization) signature and replay rejection.
-2. **Invariant conformance (Layer B)** — does a *protocol-perfect* Guardian actually preserve a security invariant? ACS-Core states it "does not assert that policies are strict." This layer drives the AIMM Pillar 2 §5.1 scenarios — a cumulative grant under concurrency, lost acknowledgements, and retries — and measures, from an independent world ledger, whether the committed total ever exceeds the grant.
+2. **Invariant conformance (Layer B)** — does a *protocol-perfect* Guardian actually preserve a security invariant? ACS-Core states it "does not assert that policies are strict." This layer drives the delegated-authority, cumulative-limit scenarios (OWASP Agentic ASI03) — a shared grant consumed under concurrency, lost acknowledgements, and retries — and measures, from an independent world ledger, whether the committed total ever exceeds the grant.
 
 Built in response to [issue #311](https://github.com/GenAI-Security-Project/agent-control-standard/issues/311) (a language-independent Guardian contract test suite) and issue #19 (no independent conformance steward in v0.1.0).
 
