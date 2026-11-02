@@ -21,8 +21,9 @@ Ground truth is an independent **ERP ledger** the runner keeps, never the Guardi
 
 - The ERP is **idempotent on `operation_id`** — Paolo's setup passes `operation_id` as the ERP idempotency key — so a double dispatch commits once. The test of a Guardian is then whether its *authority accounting* stays consistent with that reconciled truth. (This differs from the base Layer B ledger, which has no idempotency backstop; there the Guardian must prevent the double-spend itself. The two ledgers model two different questions.)
 - A **well-behaved agent** drives the wire: it honours each verdict, and after a policy change it consults the Guardian's reservation state before dispatching, dispatching only what the Guardian still holds.
+- Limit changes, revocation, and basis drift are injected through out-of-band `control/*` methods rather than ACS wire hooks. They model the authorization-state changes a Guardian receives from policy, not from agent traffic; the admission and reconciliation decisions themselves run over the ACS wire (`steps/toolCallRequest`, `steps/toolCallResult`).
 
-Each case is scored on the **one property it isolates**, not a single notion of pass/fail — because the cases isolate different things.
+Each case is scored on the **one property it isolates**, not a single notion of pass/fail, because the cases isolate different things.
 
 ## The eight cases
 
@@ -45,9 +46,10 @@ T3 passing for both is the point of T3: a correct **release** on a confirmed non
 
 The thread has not settled these, and neither does this suite. It encodes one reading and says so:
 
-1. **Commitment boundary.** Boris's point that "first dispatch" should not be universal — a general boundary (queue admission, dispatch, resource acceptance, transaction commit) — is right. This suite fixes the boundary at **dispatch**. The same cases could be re-run at each boundary; that is a parameter, not a verdict.
+1. **Commitment boundary.** Boris's point that "first dispatch" should not be universal, but one of several possible boundaries (queue admission, dispatch, resource acceptance, transaction commit), is right. This suite fixes the boundary at **dispatch**, isolated at a single point so the cases can be re-run at the others without a rewrite. That sweep is a planned extension, not yet implemented.
 2. **Is a committed overrun (T2) a violation or valid-plus-reconcile?** Paolo's open question #1. This encodes reading **(a)**: valid at admission, the overrun flagged on the grant — not reading (b), where the effective limit simply cannot drop below consumed-plus-in-flight. The gap measured is identical (20 in T2); only its label differs.
 3. **Partial fulfilment** (the ERP fills 20 of 40) — Paolo's open question #2 — is **not yet encoded**. The intended shape, from the thread, is a confirmed effect carrying an observed amount (requested 40 / observed 20) with the remainder reserved until the ERP closes the key. It is the next case to add.
+4. **Per-attempt records.** The operation/attempt split is encoded as a stable `operation_id` with idempotent resend, which covers the transport-resend case (T5). A distinct `attempt_id` carrying its own matched/mismatched authorization record, as in Paolo's scenario, is not yet modeled separately; a basis mismatch is flagged on the operation. Per-attempt records are the other extension I'd add.
 
 ## Reproduce
 
