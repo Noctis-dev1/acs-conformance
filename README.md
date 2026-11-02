@@ -53,6 +53,17 @@ The suite is the instrument; the AGT reference Guardian is a target. See [REFERE
 
 The world ledger is modelled as a faithful append-only record with **no idempotency backstop**, so preventing a double-spend is forced onto the control plane — this isolates the Guardian, which is the point of a conformance test (a production ERP with an idempotency key would also stop a double-spend). Layer A's §10 HMAC signing over the JCS/RFC-8785 canonicalization and §10.3 replay window are reported as PENDING, not asserted, until confirmed against the specification. The suite measures the wire; it does not inspect a Guardian's internals.
 
+## Credits
+
+The reconciliation model (Layer B and the T1–T7 matrix) comes from the OWASP GenAI Security Project's delegated-authority discussion:
+
+- [Boris Abuzov](https://github.com/boris-ai-sec) ([borisabuzov.com](https://borisabuzov.com)) — the 3×40 cumulative-grant case, the operation/attempt split, and holding the reservation on a lost acknowledgement.
+- t-iida — the lost-ack boundary and stop-or-reauthorize.
+- Sol_ni_shko — ordered admission.
+- Paolo Costanzo — authority-basis drift and the T1–T7 scenario.
+
+The encoding here is mine and may differ from their intent; corrections welcome.
+
 ## License
 
 Apache-2.0 (see [LICENSE](LICENSE)), matching the upstream ACS project. Copyright © 2026 Malachi Zion Kopman.

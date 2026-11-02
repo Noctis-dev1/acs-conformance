@@ -8,7 +8,7 @@
 
 The reconciling Guardian encodes the design the thread converged on:
 
-- the **operation / attempt split** and **holding the reservation on a lost acknowledgement** (Boris Abuzov),
+- the **operation / attempt split** and **holding the reservation on a lost acknowledgement** ([Boris Abuzov](https://github.com/boris-ai-sec)),
 - the **lost-ack boundary** and **stop-or-reauthorize** on a changed basis (t-iida),
 - **ordered admission** of concurrent requests (Sol_ni_shko),
 - the **authority-basis drift** scenario — a tool redefined under an unchanged name — and content-addressed **digests** (Paolo Costanzo).

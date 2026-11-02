@@ -18,7 +18,7 @@ For a shared cumulative grant it implements:
     attempt mismatched
 
 The model is credited to the OWASP delegated-authority discussion: the operation/attempt
-split and holding the reservation on a lost ack (Boris Abuzov); the lost-ack and
+split and holding the reservation on a lost ack (Boris Abuzov, github.com/boris-ai-sec); the lost-ack and
 stop-or-reauthorize boundary (t-iida); ordered admission (Sol_ni_shko); the authority-basis
 drift scenario and digests (Paolo Costanzo). It encodes ONE reading of the still-open
 commitment-boundary question (valid-at-admission, overrun-flagged); the alternative
