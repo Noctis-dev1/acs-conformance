@@ -10,9 +10,10 @@ Built in response to [issue #311](https://github.com/GenAI-Security-Project/agen
 ## Quickstart
 
 ```
-python3 run_conformance.py --selftest          # run against the three bundled mock Guardians
-python3 verify.py                              # re-derive every verdict from the wire transcript
-python3 run_conformance.py --guardian-url http://localhost:8787/acs   # point at a real Guardian
+python3 run_conformance.py --selftest          # Layer A + B against the three bundled mock Guardians
+python3 matrix.py                              # the T1–T7 reconciliation matrix (OWASP §5.1 cases)
+python3 verify.py                              # re-derive every verdict from the wire transcripts
+python3 run_conformance.py --guardian-url http://localhost:8787/acs   # point Layer A/B at a real Guardian
 ```
 
 Standard library only. No dependencies.
@@ -28,6 +29,17 @@ All three mocks are protocol-conformant. Only one holds the invariant.
 | holding | HOLD (80) | HOLD (40) | HOLD (40) |
 
 The point of Layer B in one line: a destination that passes the test everyone writes (concurrency) can still fail the two almost nobody writes — a reservation auto-released on a lost acknowledgement (leak) and a retry that is not bound to a stable operation identity (double-spend). Only `holding` — atomic reservation + stable-operation-id binding + holding the pending reservation on a lost ack — keeps the limit under all three. Full write-up in [SCENARIO.md](SCENARIO.md).
+
+## The T1–T7 reconciliation matrix
+
+The OWASP delegated-authority discussion took the 3×40 case well past the race, into a full reconciliation model: an operation/attempt split, holding a reservation on a lost acknowledgement, ordered admission, limit changes mid-flight, revocation, and authority-basis drift (a tool redefined under an unchanged name). Those cases (T1–T7) live in that thread as prose. `matrix.py` makes them executable and measures each one from an independent, `operation_id`-idempotent ERP ledger.
+
+| | T1 | T2 | T3 | T4a | T4b | T5 | T6 | T7 |
+|---|---|---|---|---|---|---|---|---|
+| `reconciling` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
+| `naive` | FAIL | FAIL | PASS | n/a | n/a | FAIL | FAIL | FAIL |
+
+The model is credited to the thread's participants; the encoding — and the open questions it does not pretend to settle (the commitment boundary, whether a committed overrun is a violation, partial fulfilment) — is written up in [SCENARIO_T1_T7.md](SCENARIO_T1_T7.md).
 
 ## Running it against the real reference Guardian
 

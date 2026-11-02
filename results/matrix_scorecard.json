@@ -1,0 +1,122 @@
+{
+  "scorecards": {
+    "reconciling": [
+      {
+        "case": "T1",
+        "measures": "undispatched reservation re-admitted on a limit cut (ledger stays within the new limit)",
+        "erp": 40,
+        "limit": 60,
+        "verdict": "PASS",
+        "detail": "committed 40 vs limit 60"
+      },
+      {
+        "case": "T2",
+        "measures": "a pre-cut in-flight commit over the new limit is FLAGGED as an overrun, not silently accepted",
+        "erp": 80,
+        "flagged": true,
+        "verdict": "PASS",
+        "detail": "committed 80, overrun flagged=True"
+      },
+      {
+        "case": "T3",
+        "measures": "lost ack with no committed effect: reservation released, a fresh retry denied against the reduced limit",
+        "erp": 40,
+        "retry": "deny",
+        "verdict": "PASS",
+        "detail": "committed 40, retry=deny"
+      },
+      {
+        "case": "T4a",
+        "measures": "definition digest drift, enforced: operation held for reauthorization, never committed",
+        "erp": 40,
+        "op_b_state": "held",
+        "verdict": "PASS",
+        "detail": "op-B held at dispatch, committed 40"
+      },
+      {
+        "case": "T4b",
+        "measures": "definition digest drift, recorded-not-enforced: operation commits but the attempt is flagged mismatched",
+        "erp": 80,
+        "flagged": true,
+        "verdict": "PASS",
+        "detail": "committed 80, basis_mismatch flagged=True"
+      },
+      {
+        "case": "T5",
+        "measures": "a transport resend of a known operation_id is idempotent (allowed, no second consumption; books match the ledger)",
+        "erp": 80,
+        "resend": "allow",
+        "consumed": 80,
+        "verdict": "PASS",
+        "detail": "resend=allow, guardian consumed 80 vs ledger 80"
+      },
+      {
+        "case": "T6",
+        "measures": "a limit cut below already-committed consumption flags an overrun on the grant",
+        "erp": 40,
+        "flagged": true,
+        "verdict": "PASS",
+        "detail": "committed 40 vs limit 30, overrun flagged=True"
+      },
+      {
+        "case": "T7",
+        "measures": "revocation releases the not-yet-dispatched; nothing new commits; a prior commit is not retro-flagged",
+        "erp": 40,
+        "reconfirm": "deny",
+        "verdict": "PASS",
+        "detail": "committed 40, re-confirm=deny, post-revoke-commit flag=False"
+      }
+    ],
+    "naive": [
+      {
+        "case": "T1",
+        "measures": "undispatched reservation re-admitted on a limit cut (ledger stays within the new limit)",
+        "erp": 80,
+        "limit": 60,
+        "verdict": "FAIL",
+        "detail": "committed 80 vs limit 60"
+      },
+      {
+        "case": "T2",
+        "measures": "a pre-cut in-flight commit over the new limit is FLAGGED as an overrun, not silently accepted",
+        "erp": 80,
+        "flagged": false,
+        "verdict": "FAIL",
+        "detail": "committed 80, overrun flagged=False"
+      },
+      {
+        "case": "T3",
+        "measures": "lost ack with no committed effect: reservation released, a fresh retry denied against the reduced limit",
+        "erp": 40,
+        "retry": "deny",
+        "verdict": "PASS",
+        "detail": "committed 40, retry=deny"
+      },
+      {
+        "case": "T5",
+        "measures": "a transport resend of a known operation_id is idempotent (allowed, no second consumption; books match the ledger)",
+        "erp": 80,
+        "resend": "deny",
+        "consumed": 80,
+        "verdict": "FAIL",
+        "detail": "resend=deny, guardian consumed 80 vs ledger 80"
+      },
+      {
+        "case": "T6",
+        "measures": "a limit cut below already-committed consumption flags an overrun on the grant",
+        "erp": 40,
+        "flagged": false,
+        "verdict": "FAIL",
+        "detail": "committed 40 vs limit 30, overrun flagged=False"
+      },
+      {
+        "case": "T7",
+        "measures": "revocation releases the not-yet-dispatched; nothing new commits; a prior commit is not retro-flagged",
+        "erp": 80,
+        "reconfirm": "deny",
+        "verdict": "FAIL",
+        "detail": "committed 80, re-confirm=deny, post-revoke-commit flag=True"
+      }
+    ]
+  }
+}

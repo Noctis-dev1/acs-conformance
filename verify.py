@@ -34,6 +34,78 @@ def classify(scenario, committed, exec_count, reason):
     return "?"
 
 
+def verify_matrix():
+    """Re-derive every T1–T7 verdict from matrix_transcript.jsonl, independently of
+    matrix_scorecard.json. Returns True/False, or None if no matrix run is present."""
+    tpath = os.path.join(RES, "matrix_transcript.jsonl")
+    spath = os.path.join(RES, "matrix_scorecard.json")
+    if not (os.path.exists(tpath) and os.path.exists(spath)):
+        return None
+    tx = [json.loads(l) for l in open(tpath) if l.strip()]
+    scorecard = json.load(open(spath))["scorecards"]
+
+    events = {}
+    for t in tx:
+        events.setdefault((t["policy"], t["case"]), []).append(t)
+
+    def erp_total(evs):
+        amts = {}
+        for e in evs:
+            if e["ev"] == "erp_commit":
+                amts[e["op"]] = e["amount"]          # idempotent: op_id is the ledger key
+        return sum(amts.values())
+
+    def final_state(evs):
+        st = {}
+        for e in evs:
+            if e["ev"] == "control" and e.get("method") == "control/state":
+                st = e.get("response") or {}
+        return st
+
+    def decisions(evs, op):
+        return [e["decision"] for e in evs if e["ev"] == "consume" and e["op"] == op]
+
+    def classify(case, evs):
+        erp = erp_total(evs); st = final_state(evs)
+        flags = [f["type"] for f in st.get("flags", [])]
+        if case == "T1":
+            return "PASS" if erp <= 60 else "FAIL"
+        if case == "T2":
+            return "PASS" if (erp == 80 and "overrun" in flags) else "FAIL"
+        if case == "T3":
+            r = decisions(evs, "op-B2")
+            return "PASS" if (erp == 40 and r and r[-1] == "deny") else "FAIL"
+        if case == "T4a":
+            bstate = (st.get("reservations", {}).get("op-B", {}) or {}).get("state")
+            return "PASS" if (bstate == "held" and erp == 40) else "FAIL"
+        if case == "T4b":
+            return "PASS" if (erp == 80 and "basis_mismatch" in flags) else "FAIL"
+        if case == "T5":
+            d = decisions(evs, "op-B")
+            return "PASS" if (len(d) >= 2 and d[-1] == "allow" and st.get("consumed") == erp == 80) else "FAIL"
+        if case == "T6":
+            return "PASS" if "overrun" in flags else "FAIL"
+        if case == "T7":
+            d = decisions(evs, "op-B")
+            return "PASS" if (erp == 40 and d and d[-1] == "deny"
+                              and "post_revocation_commit" not in flags) else "FAIL"
+        return "?"
+
+    print("\nVERIFY  T1–T7 reconciliation matrix")
+    print("  (every verdict re-derived from matrix_transcript.jsonl, not the scorecard)")
+    ok = True
+    for policy, rows in scorecard.items():
+        cells = []
+        for r in rows:
+            case = r["case"]
+            recomputed = classify(case, events.get((policy, case), []))
+            good = recomputed == r["verdict"]
+            ok = ok and good
+            cells.append(f"{case}={recomputed}" + ("" if good else f"!=sc({r['verdict']})"))
+        print(f"  {policy:<13}{'  '.join(cells)}")
+    return ok
+
+
 def main():
     for n in ("transcript.jsonl", "scorecard.json", "manifest.json"):
         if not os.path.exists(os.path.join(RES, n)):
@@ -92,6 +164,10 @@ def main():
         good = got == want
         ok_all = ok_all and good
         print(f"  {src:<32} {'OK' if good else 'MISMATCH'}")
+
+    matrix_ok = verify_matrix()          # None if no T1–T7 run is present in results/
+    if matrix_ok is not None:
+        ok_all = ok_all and matrix_ok
 
     print("\nVERIFIED" if ok_all else "\nNOT VERIFIED — transcript does not reproduce the scorecard")
     return 0 if ok_all else 2
