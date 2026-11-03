@@ -1,6 +1,6 @@
 """
 Reconciling mock Guardian — the delegated-authority / reconciliation model the OWASP
-GenAI Security Project's §5.1 thread converged on, made executable so the T1–T7 matrix
+GenAI Security Project's §5.1 thread converged on, made executable so the T1–T9 matrix
 can be MEASURED over the ACS wire instead of argued in prose.
 
 For a shared cumulative grant it implements:
@@ -9,6 +9,9 @@ For a shared cumulative grant it implements:
     second consumption
   - holding the reservation on a lost acknowledgement (never auto-release)
   - reconciliation against committed truth: committed | non_effect | unresolved
+  - partial fulfilment (T8): a result carries an observed effect (observed < reserved); the
+    books track the observed amount and the unfilled remainder stays reserved until the key
+    closes (settle), when it commits or is released — never freed before it lands
   - limit change mid-flight: re-admit the not-yet-dispatched against the new limit; never
     cancel an in-flight operation — flag an overrun instead
   - revocation: release the not-yet-dispatched, resolve the in-flight, flag a
@@ -16,13 +19,17 @@ For a shared cumulative grant it implements:
   - authority-basis drift (T4): a definition digest recorded at admission and checked at
     dispatch — enforced -> hold for reauthorization; recorded-only -> commit but flag the
     attempt mismatched
+  - behaviour drift under a STABLE digest (T9): the server changes behaviour while the
+    declared definition digest is unchanged. A digest check cannot see this by construction;
+    the suite records it as an explicit expected-miss — the ceiling of attestation-by-digest,
+    not a gap pretended covered
 
 The model is credited to the OWASP delegated-authority discussion: the operation/attempt
 split and holding the reservation on a lost ack (Boris Abuzov, github.com/boris-ai-sec); the lost-ack and
 stop-or-reauthorize boundary (t-iida); ordered admission (Sol_ni_shko); the authority-basis
 drift scenario and digests (Paolo Costanzo). It encodes ONE reading of the still-open
 commitment-boundary question (valid-at-admission, overrun-flagged); the alternative
-(all-times invariant / effective-limit) is noted in SCENARIO_T1_T7.md, not silently chosen.
+(all-times invariant / effective-limit) is noted in SCENARIO_T1_T9.md, not silently chosen.
 
 Three variants, selected by name:
   reconciling      - the design above.
@@ -42,8 +49,9 @@ runner drive the scenarios and read ground state:
   control/setLimit    {grant_id, new_limit}
   control/revoke      {grant_id}
   control/setBoundary {grant_id, boundary}   (queue_admission|dispatch|resource_acceptance|transaction_commit)
-  control/setBasis    {grant_id, definition_digest?, enforce?}
-  control/state       {grant_id} -> {limit, revoked, commitment_boundary, consumed, outstanding, reservations, flags}
+  control/setBasis    {grant_id, definition_digest?, enforce?, behaviour?}
+  control/state       {grant_id} -> {limit, revoked, commitment_boundary, definition_digest,
+                                     behaviour_tag, consumed, outstanding, reservations, flags}
 
 Run one:  python3 reconciling.py --policy reconciling --port 8810
 """
@@ -58,8 +66,8 @@ ACS_VERSION = "0.1.0"
 DEFAULT_LIMIT = 100
 
 # reservation states
-RESERVED, COMMITTED, NON_EFFECT, RELEASED, HELD = (
-    "reserved", "committed", "non_effect", "released", "held")
+RESERVED, COMMITTED, NON_EFFECT, RELEASED, HELD, PARTIAL = (
+    "reserved", "committed", "non_effect", "released", "held", "partial")
 
 # execution-pipeline stage a live reservation has reached, in order. The commitment
 # boundary is the stage at and beyond which a limit cut can no longer cancel the operation.
@@ -71,17 +79,17 @@ BEHAVIOUR = {
     # the correct design the thread converged on
     "reconciling":      dict(idempotent_resend=True, emit_idempotent_signal=True,
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
-                             flag_overrun=True, deny_on_revoke=True),
+                             flag_overrun=True, deny_on_revoke=True, hold_partial_residual=True),
     # foil: each switch flipped to the classic failure
     "naive":            dict(idempotent_resend=False, emit_idempotent_signal=False,
                              hold_on_lost_ack=False, readmit_on_limit_cut=False,
-                             flag_overrun=False, deny_on_revoke=False),
+                             flag_overrun=False, deny_on_revoke=False, hold_partial_residual=False),
     # reconciling in every respect EXCEPT it outsources idempotency to the resource: on a
     # resend it re-authorizes execution instead of signalling "already done", so it holds
     # only when the ERP ledger itself dedupes. Isolates Guardian- vs resource-provided guarantees.
     "resource-reliant": dict(idempotent_resend=True, emit_idempotent_signal=False,
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
-                             flag_overrun=True, deny_on_revoke=True),
+                             flag_overrun=True, deny_on_revoke=True, hold_partial_residual=True),
 }
 
 
@@ -92,16 +100,31 @@ class Grant:
         self.enforce_basis = False
         self.cur_def_digest = "def-v1"
         self.commitment_boundary = "dispatch"     # declared per grant; default matches base T1-T7
-        self.reservations: dict[str, dict] = {}   # op_id -> {amount,state,stage,def_digest,release_reason,flag}
+        self.behaviour_tag = "b1"                  # ground-truth server behaviour; a digest does NOT attest it
+        self.reservations: dict[str, dict] = {}   # op_id -> {amount,state,stage,def_digest,release_reason,committed_amount,residual,flag}
         self.order: list[str] = []
         self.flags: list[dict] = []
 
+    @staticmethod
+    def _committed_of(r) -> int:
+        # a partial/settled commit counts its OBSERVED effect, not the requested amount
+        ca = r.get("committed_amount")
+        return ca if ca is not None else r["amount"]
+
     def committed_total(self) -> int:
-        return sum(r["amount"] for r in self.reservations.values() if r["state"] == COMMITTED)
+        return sum(self._committed_of(r) for r in self.reservations.values()
+                   if r["state"] in (COMMITTED, PARTIAL))
 
     def outstanding_total(self, exclude: str | None = None) -> int:
-        return sum(r["amount"] for op, r in self.reservations.items()
-                   if op != exclude and r["state"] in (RESERVED, HELD))
+        tot = 0
+        for op, r in self.reservations.items():
+            if op == exclude:
+                continue
+            if r["state"] in (RESERVED, HELD):
+                tot += r["amount"]
+            elif r["state"] == PARTIAL:
+                tot += r.get("residual", 0)   # unfilled remainder stays reserved until the key closes
+        return tot
 
     def add_flag(self, ftype: str, detail: str):
         self.flags.append({"type": ftype, "detail": detail})
@@ -140,13 +163,14 @@ class Policy:
             avail = g.limit - g.committed_total() - g.outstanding_total()
             if amount <= avail:
                 g.reservations[operation_id] = {"amount": amount, "state": RESERVED, "stage": "reserved",
-                                                "def_digest": g.cur_def_digest, "release_reason": None}
+                                                "def_digest": g.cur_def_digest, "release_reason": None,
+                                                "committed_amount": None, "residual": 0}
                 g.order.append(operation_id)
                 return "allow", "reserved against the grant", []
             return "deny", "reservation would exceed the grant", ["cumulative_limit_exceeded"]
 
     # ---- reconciliation (steps/toolCallResult) ------------------------------------------
-    def on_result(self, session, grant_id, operation_id, status):
+    def on_result(self, session, grant_id, operation_id, status, observed=None):
         with self.lock:
             g = self._grant(session, grant_id)
             r = g.reservations.get(operation_id)
@@ -180,6 +204,30 @@ class Policy:
                 else:
                     r["state"] = RELEASED               # naive bug: frees budget already spent
                     r["release_reason"] = "auto_released_on_lost_ack"
+            elif status == "partial":
+                # the resource fulfilled only `observed` of the reserved amount
+                if r["state"] not in (RESERVED, HELD):
+                    return
+                r["committed_amount"] = observed
+                r["residual"] = r["amount"] - (observed or 0)
+                r["stage"] = "committed"
+                if self.b["hold_partial_residual"]:
+                    r["state"] = PARTIAL                # residual stays reserved until the key closes
+                else:
+                    r["state"] = COMMITTED              # naive: commit the observed, free the remainder
+                    r["residual"] = 0
+                if self.b["flag_overrun"] and g.committed_total() > g.limit:
+                    g.add_flag("overrun", f"committed {g.committed_total()} over limit {g.limit}")
+            elif status == "settle":
+                # the ERP closed the key; `observed` is the final effect for this operation
+                r["committed_amount"] = observed
+                r["residual"] = 0
+                r["state"] = COMMITTED
+                r["stage"] = "committed"
+                if g.revoked:
+                    g.add_flag("post_revocation_commit", f"{operation_id} committed after revoke")
+                if self.b["flag_overrun"] and g.committed_total() > g.limit:
+                    g.add_flag("overrun", f"committed {g.committed_total()} over limit {g.limit}")
 
     # ---- control plane (test harness) ---------------------------------------------------
     def set_limit(self, session, grant_id, new_limit):
@@ -227,23 +275,29 @@ class Policy:
                 g.commitment_boundary = boundary
             return {"commitment_boundary": g.commitment_boundary}
 
-    def set_basis(self, session, grant_id, definition_digest=None, enforce=None):
+    def set_basis(self, session, grant_id, definition_digest=None, enforce=None, behaviour=None):
         with self.lock:
             g = self._grant(session, grant_id)
             if definition_digest is not None:
                 g.cur_def_digest = definition_digest
             if enforce is not None:
                 g.enforce_basis = bool(enforce)
-            return {"definition_digest": g.cur_def_digest, "enforce_basis": g.enforce_basis}
+            if behaviour is not None:
+                g.behaviour_tag = behaviour      # ground-truth drift; NOT consulted by any decision
+            return {"definition_digest": g.cur_def_digest, "enforce_basis": g.enforce_basis,
+                    "behaviour_tag": g.behaviour_tag}
 
     def state(self, session, grant_id):
         with self.lock:
             g = self._grant(session, grant_id)
             return {"limit": g.limit, "revoked": g.revoked,
                     "commitment_boundary": g.commitment_boundary,
+                    "definition_digest": g.cur_def_digest, "behaviour_tag": g.behaviour_tag,
                     "consumed": g.committed_total(), "outstanding": g.outstanding_total(),
                     "reservations": {op: {"amount": r["amount"], "state": r["state"],
-                                          "stage": r.get("stage", "reserved")}
+                                          "stage": r.get("stage", "reserved"),
+                                          "committed_amount": r.get("committed_amount"),
+                                          "residual": r.get("residual", 0)}
                                      for op, r in g.reservations.items()},
                     "flags": list(g.flags)}
 
@@ -312,7 +366,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if method == "steps/toolCallResult":
             pol.on_result(session, payload.get("grant_id"), payload.get("operation_id"),
-                          payload.get("status"))
+                          payload.get("status"), payload.get("observed"))
             return self._send(self._acs(req_id, acs_rid, "allow", "result recorded", []))
 
         # test-harness control plane
@@ -327,7 +381,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "control/setBasis":
             return self._send(self._ok(req_id, pol.set_basis(session, payload.get("grant_id"),
                                                             payload.get("definition_digest"),
-                                                            payload.get("enforce"))))
+                                                            payload.get("enforce"),
+                                                            payload.get("behaviour"))))
         if method == "control/state":
             return self._send(self._ok(req_id, pol.state(session, payload.get("grant_id"))))
 

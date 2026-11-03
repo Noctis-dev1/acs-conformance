@@ -1,6 +1,6 @@
-# The T1–T7 reconciliation matrix, made executable
+# The T1–T9 reconciliation matrix, made executable
 
-*The OWASP GenAI Security Project's delegated-authority discussion produced a set of reconciliation test cases — the 3×40 cumulative-grant race and its lost-ack, revocation, limit-change, and basis-drift variants. They exist as prose. This runs them, and measures each from an independent ledger.*
+*The OWASP GenAI Security Project's delegated-authority discussion produced a set of reconciliation test cases — the 3×40 cumulative-grant race and its lost-ack, revocation, limit-change, basis-drift, partial-fulfilment, and behaviour-drift variants. They exist as prose. This runs them, and measures each from an independent ledger.*
 
 **Suite:** `matrix.py` · **Guardian:** `mock_guardians/reconciling.py` · **Verifier:** `verify.py` · **Target contract:** ACS v0.1.0 Guardian wire (JSON-RPC 2.0 over HTTP).
 
@@ -25,9 +25,9 @@ Ground truth is an independent **ERP ledger** the runner keeps, never the Guardi
 
 Each case is scored on the **one property it isolates**, not a single notion of pass/fail, because the cases isolate different things.
 
-## The eight cases
+## The ten cases
 
-Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconciling` is the model above; `naive` is a foil that releases on a lost ack, does not re-admit on a limit cut, treats a resend as new work, and does not flag.
+Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconciling` is the model above; `naive` is a foil that releases on a lost ack, does not re-admit on a limit cut, treats a resend as new work, frees a partial-fulfilment remainder, and does not flag.
 
 | Case | What it isolates | reconciling | naive |
 |---|---|---|---|
@@ -39,8 +39,10 @@ Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconci
 | T5 | a transport resend of a known `operation_id` is idempotent (allowed once; books = ledger) | PASS | FAIL (rejects it as new work) |
 | T6 | a limit cut below already-committed consumption flags an overrun on the grant | PASS | FAIL (silent) |
 | T7 | revocation releases the not-yet-dispatched; nothing new commits; a prior commit isn't retro-flagged | PASS | FAIL (dispatches past revocation) |
+| T8 | partial fulfilment (20 of 40 lands): books track the **observed** effect, the remainder stays reserved until the key closes — a competing op is denied, the late settlement lands within the cap | PASS | FAIL (frees the remainder; a competing op is admitted and the settlement double-spends to 120) |
+| T9 | unchanged definition digest, changed server behaviour: a digest attests the declaration, not the behaviour — an **expected-miss** by construction | E-MISS | n/a |
 
-T3 passing for both is the point of T3: a correct **release** on a confirmed non-effect is as required as holding on an unresolved one. T4 is an enforcement posture rather than a foil, so it runs against the reconciling Guardian under both settings.
+T3 passing for both is the point of T3: a correct **release** on a confirmed non-effect is as required as holding on an unresolved one. T4 is an enforcement posture rather than a foil, so it runs against the reconciling Guardian under both settings. T9 is not scored pass/fail: it is an **expected-miss**, the executable statement that attestation-by-digest is necessary but not sufficient — the digest proves the declaration is stable and says nothing about the behaviour behind it, so no honest digest-based check could catch this, and the suite records the ceiling rather than pretending to cover it. Flagging it would be a false positive, which is the fail condition.
 
 ## Two further axes, now executable
 
@@ -70,7 +72,7 @@ The thread has not settled these, and neither does this suite. It encodes one re
 
 1. **Which boundary is normative.** The boundary is now a declared parameter and the sweep runs the cases at each (above). What stays open is the normative choice Boris and t-iida are weighing: whether §5.1 should mandate a specific boundary per action class, and which one. The suite measures the consequence of each; it does not pick one.
 2. **Is a committed overrun (T2) a violation or valid-plus-reconcile?** Paolo's open question #1. This encodes reading **(a)**: valid at admission, the overrun flagged on the grant — not reading (b), where the effective limit simply cannot drop below consumed-plus-in-flight. The gap measured is identical (20 in T2); only its label differs.
-3. **Partial fulfilment** (the ERP fills 20 of 40) — Paolo's open question #2 — is **not yet encoded**. The intended shape, from the thread, is a confirmed effect carrying an observed amount (requested 40 / observed 20) with the remainder reserved until the ERP closes the key. It is the next case to add.
+3. **Partial fulfilment** (the ERP fills 20 of 40) — Paolo's open question #2 — is now **encoded as T8**. It takes one reading: a result carries an observed effect (requested 40 / observed 20), the books track the observed amount, and the unfilled remainder stays reserved until the key closes, when it commits or is released — it is never freed before it lands. The alternative reading (commit the observed amount and reconcile the remainder as a fresh request) would free budget the key may still consume; the thread has not settled which is normative, and T8 measures the consequence of the hold-until-close reading.
 4. **Per-attempt records.** The operation/attempt split is encoded as a stable `operation_id` with idempotent resend, which covers the transport-resend case (T5). A distinct `attempt_id` carrying its own matched/mismatched authorization record, as in Paolo's scenario, is not yet modeled separately; a basis mismatch is flagged on the operation. Per-attempt records are the other extension I'd add.
 
 ## Reproduce

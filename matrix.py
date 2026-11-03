@@ -1,10 +1,14 @@
 """
-T1–T7 reconciliation matrix — the OWASP §5.1 delegated-authority test cases made
+T1–T9 reconciliation matrix — the OWASP §5.1 delegated-authority test cases made
 executable and measured over the ACS wire.
 
 The §5.1 discussion produced a set of reconciliation test cases (Paolo Costanzo's T1–T7,
 building on Boris Abuzov's 3×40 case and the operation/attempt split, t-iida's lost-ack
 boundary, and Sol_ni_shko's ordered admission). They exist as prose. This runs them.
+
+T8 (partial fulfilment — Paolo's open question #2) and T9 (unchanged definition digest with
+changed server behaviour — t-iida's digest-vs-behaviour point, an explicit expected-miss)
+extend the set to the two cases the §5.1 leads named next.
 
 Ground truth is an independent ERP ledger the runner keeps, NOT the Guardian's own books.
 Unlike the base Layer B ledger, this ERP is idempotent on operation_id — Paolo's setup
@@ -15,14 +19,14 @@ Each case is measured on the ONE property it isolates (stated per row), not a si
 pass/fail notion — because the cases isolate different things: a ledger invariant, an
 overrun that must be flagged rather than silent, an idempotent resend, a safe release, a
 revocation. One reading of the still-open commitment-boundary question is encoded
-(valid-at-admission, overrun-flagged); the alternative is noted in SCENARIO_T1_T7.md.
+(valid-at-admission, overrun-flagged); the alternative is noted in SCENARIO_T1_T9.md.
 
 It also runs a commitment-boundary sweep (the same limit-cut case at each declared
 boundary) and a non-idempotent ledger variant (a transport resend under both ledgers, with
 a resource-reliant Guardian), which separate a guarantee the Guardian provides from one the
 resource provides.
 
-  python3 matrix.py            # T1-T7 + the boundary sweep + the ledger variant, write results
+  python3 matrix.py            # T1-T9 + the boundary sweep + the ledger variant, write results
   python3 verify.py            # re-derive every verdict from the transcript
 """
 from __future__ import annotations
@@ -68,12 +72,13 @@ class Client:
         self._rec(case=case, ev="consume", op=op, amount=amt, decision=d, codes=codes)
         return d
 
-    def result(self, case, op, status):
-        env = w.build_request("steps/toolCallResult",
-                              {"grant_id": case, "operation_id": op, "status": status},
-                              session_id=self.session)
+    def result(self, case, op, status, observed=None):
+        payload = {"grant_id": case, "operation_id": op, "status": status}
+        if observed is not None:
+            payload["observed"] = observed
+        env = w.build_request("steps/toolCallResult", payload, session_id=self.session)
         self.c.call(env)
-        self._rec(case=case, ev="result", op=op, status=status)
+        self._rec(case=case, ev="result", op=op, status=status, observed=observed)
 
     def control(self, method, case, **kw):
         env = w.build_request(method, {"grant_id": case, **kw}, session_id=self.session)
@@ -220,6 +225,44 @@ def T7(cli):
                 detail=f"committed {erp}, re-confirm={reconfirm}, post-revoke-commit flag={post}")
 
 
+def T8(cli):
+    c = "T8"   # partial fulfilment: op-B requests 40, the resource fills only 20, the
+    #            remainder stays reserved until the ERP closes the key (Paolo's open question #2)
+    cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
+    cli.consume(c, "op-B", 40)
+    cli.result(c, "op-B", "dispatched")
+    cli.result(c, "op-B", "partial", observed=20); cli.erp_commit(c, "op-B", 20)   # 20 of 40 landed
+    opc = cli.consume(c, "op-C", 40)               # competes for budget; the held residual must block it
+    if opc == "allow":                             # (naive frees the residual and admits op-C)
+        cli.result(c, "op-C", "dispatched"); cli.erp_commit(c, "op-C", 40); cli.result(c, "op-C", "committed")
+    cli.result(c, "op-B", "settle", observed=40); cli.erp_commit(c, "op-B", 40)     # key closes: the other 20 lands
+    st = cli.state(c); erp = cli.erp_total(c); flags = _flags(st)
+    ok = opc == "deny" and erp == 80 and st.get("consumed") == 80 and "overrun" not in flags
+    return dict(case=c, measures="partial fulfilment: books track the OBSERVED effect and the unfilled remainder stays reserved until the key closes (a competing op is denied; the late settlement lands within the cap)",
+                erp=erp, opc=opc, consumed=st.get("consumed"),
+                verdict="PASS" if ok else "FAIL",
+                detail=f"op-C={opc}, committed {erp}, guardian consumed {st.get('consumed')}")
+
+
+def T9(cli):
+    c = "T9"   # unchanged definition digest, changed server behaviour — the case a digest
+    #            cannot catch by construction (an explicit expected-miss)
+    cli.control("control/setBasis", c, enforce=True)                 # digest def-v1, behaviour b1
+    cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
+    cli.control("control/setBasis", c, behaviour="b2")               # server behaviour drifts; digest stays def-v1
+    cli.consume(c, "op-B", 40); cli.result(c, "op-B", "dispatched")  # digest still matches -> not held, not flagged
+    cli.erp_commit(c, "op-B", 40); cli.result(c, "op-B", "committed")
+    st = cli.state(c); erp = cli.erp_total(c); flags = _flags(st)
+    digest_stable = st.get("definition_digest") == "def-v1"
+    behaviour_drifted = st.get("behaviour_tag") == "b2"
+    bstate = (st.get("reservations", {}).get("op-B", {}) or {}).get("state")
+    missed = erp == 80 and "basis_mismatch" not in flags and bstate == rg.COMMITTED
+    return dict(case=c, measures="unchanged definition digest, changed server behaviour: a digest attests the declaration, not the behaviour behind it — the boundary of digest-based attestation, measured, not pretended covered",
+                erp=erp, digest_stable=digest_stable, behaviour_drifted=behaviour_drifted,
+                verdict="EXPECTED-MISS" if (digest_stable and behaviour_drifted and missed) else "FAIL",
+                detail=f"digest def-v1 held, behaviour drifted b1->b2, op-B committed unflagged (committed {erp})")
+
+
 # ---------------------------------------------------------------- commitment-boundary sweep
 BOUNDARIES = ["queue_admission", "dispatch", "resource_acceptance", "transaction_commit"]
 
@@ -265,8 +308,8 @@ def ledger_case(cli):
                 detail=f"{cli.policy} on a {ledger} ledger: committed {erp}")
 
 
-CASES_ALL = [T1, T2, T3, T4a, T4b, T5, T6, T7]
-CASES_NAIVE = [T1, T2, T3, T5, T6, T7]             # T4 is an enforcement posture, not a foil for naive
+CASES_ALL = [T1, T2, T3, T4a, T4b, T5, T6, T7, T8, T9]
+CASES_NAIVE = [T1, T2, T3, T5, T6, T7, T8]         # T4/T9 are postures measured only against reconciling
 
 
 def run_policy(policy: str, port: int, cases):
@@ -317,15 +360,17 @@ def main():
     with open(os.path.join(RES, "matrix_scorecard.json"), "w") as f:
         json.dump({"scorecards": scorecards, "sweep": sweep_rows, "ledger": ledger_rows}, f, indent=2)
 
-    print("T1–T7 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
-    order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7"]
+    print("T1–T9 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
+    order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7", "T8", "T9"]
+    disp = {"EXPECTED-MISS": "E-MISS"}
     def row(policy):
         by = {r["case"]: r["verdict"] for r in scorecards[policy]}
-        cells = "".join(f"{by.get(cs, 'n/a'):<7}" for cs in order)
+        cells = "".join(f"{disp.get(by.get(cs, 'n/a'), by.get(cs, 'n/a')):<8}" for cs in order)
         print(f"  {policy:<13}{cells}")
-    print(f"  {'':<13}" + "".join(f"{cs:<7}" for cs in order))
+    print(f"  {'':<13}" + "".join(f"{cs:<8}" for cs in order))
     row("reconciling")
     row("naive")
+    print("  (E-MISS = expected-miss: a known blind spot a digest cannot catch, measured not pretended covered)")
     print("\nWhat each case isolates:")
     for r in scorecards["reconciling"]:
         print(f"  {r['case']:<5} {r['measures']}")

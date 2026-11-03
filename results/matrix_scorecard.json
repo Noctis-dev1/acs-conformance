@@ -65,6 +65,24 @@
         "reconfirm": "deny",
         "verdict": "PASS",
         "detail": "committed 40, re-confirm=deny, post-revoke-commit flag=False"
+      },
+      {
+        "case": "T8",
+        "measures": "partial fulfilment: books track the OBSERVED effect and the unfilled remainder stays reserved until the key closes (a competing op is denied; the late settlement lands within the cap)",
+        "erp": 80,
+        "opc": "deny",
+        "consumed": 80,
+        "verdict": "PASS",
+        "detail": "op-C=deny, committed 80, guardian consumed 80"
+      },
+      {
+        "case": "T9",
+        "measures": "unchanged definition digest, changed server behaviour: a digest attests the declaration, not the behaviour behind it \u2014 the boundary of digest-based attestation, measured, not pretended covered",
+        "erp": 80,
+        "digest_stable": true,
+        "behaviour_drifted": true,
+        "verdict": "EXPECTED-MISS",
+        "detail": "digest def-v1 held, behaviour drifted b1->b2, op-B committed unflagged (committed 80)"
       }
     ],
     "naive": [
@@ -116,6 +134,15 @@
         "reconfirm": "deny",
         "verdict": "FAIL",
         "detail": "committed 80, re-confirm=deny, post-revoke-commit flag=True"
+      },
+      {
+        "case": "T8",
+        "measures": "partial fulfilment: books track the OBSERVED effect and the unfilled remainder stays reserved until the key closes (a competing op is denied; the late settlement lands within the cap)",
+        "erp": 120,
+        "opc": "allow",
+        "consumed": 120,
+        "verdict": "FAIL",
+        "detail": "op-C=allow, committed 120, guardian consumed 120"
       }
     ]
   },
