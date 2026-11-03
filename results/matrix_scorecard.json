@@ -256,6 +256,68 @@
       "detail": "op-B resource_accepted, boundary transaction_commit, limit 100->60; committed 40 (expect 40)"
     }
   ],
+  "boundary_conformance": [
+    {
+      "policy": "reconciling",
+      "boundary": "queue_admission",
+      "opc": "deny",
+      "erp": 80,
+      "op_b_after_cut": "reserved",
+      "overrun_flagged": true,
+      "verdict": "PASS",
+      "detail": "boundary queue_admission: op-B reserved after the cut, op-C=deny, committed 80"
+    },
+    {
+      "policy": "reconciling",
+      "boundary": "dispatch",
+      "opc": "deny",
+      "erp": 80,
+      "op_b_after_cut": "reserved",
+      "overrun_flagged": true,
+      "verdict": "PASS",
+      "detail": "boundary dispatch: op-B reserved after the cut, op-C=deny, committed 80"
+    },
+    {
+      "policy": "reconciling",
+      "boundary": "resource_acceptance",
+      "opc": "deny",
+      "erp": 80,
+      "op_b_after_cut": "reserved",
+      "overrun_flagged": true,
+      "verdict": "PASS",
+      "detail": "boundary resource_acceptance: op-B reserved after the cut, op-C=deny, committed 80"
+    },
+    {
+      "policy": "boundary-blind",
+      "boundary": "queue_admission",
+      "opc": "allow",
+      "erp": 100,
+      "op_b_after_cut": "released",
+      "overrun_flagged": true,
+      "verdict": "FAIL",
+      "detail": "boundary queue_admission: op-B released after the cut, op-C=allow, committed 100"
+    },
+    {
+      "policy": "boundary-blind",
+      "boundary": "dispatch",
+      "opc": "allow",
+      "erp": 100,
+      "op_b_after_cut": "released",
+      "overrun_flagged": true,
+      "verdict": "FAIL",
+      "detail": "boundary dispatch: op-B released after the cut, op-C=allow, committed 100"
+    },
+    {
+      "policy": "boundary-blind",
+      "boundary": "resource_acceptance",
+      "opc": "allow",
+      "erp": 100,
+      "op_b_after_cut": "released",
+      "overrun_flagged": true,
+      "verdict": "FAIL",
+      "detail": "boundary resource_acceptance: op-B released after the cut, op-C=allow, committed 100"
+    }
+  ],
   "ledger": [
     {
       "policy": "reconciling",

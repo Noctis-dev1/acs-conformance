@@ -22,11 +22,13 @@ revocation. One reading of the still-open commitment-boundary question is encode
 (valid-at-admission, overrun-flagged); the alternative is noted in SCENARIO_T1_T9.md.
 
 It also runs a commitment-boundary sweep (the same limit-cut case at each declared
-boundary) and a non-idempotent ledger variant (a transport resend under both ledgers, with
-a resource-reliant Guardian), which separate a guarantee the Guardian provides from one the
-resource provides.
+boundary); a boundary-conformance invariant (does a Guardian that DECLARES a boundary
+actually honour it — §5.1's condition that the maximum remaining exposure be bounded and
+accounted at the declared boundary, with boundary-blind as the foil); and a non-idempotent
+ledger variant (a transport resend under both ledgers, with a resource-reliant Guardian),
+which separates a guarantee the Guardian provides from one the resource provides.
 
-  python3 matrix.py            # T1-T9 + the boundary sweep + the ledger variant, write results
+  python3 matrix.py            # T1-T9 + sweep + boundary conformance + ledger variant, write results
   python3 verify.py            # re-derive every verdict from the transcript
 """
 from __future__ import annotations
@@ -295,6 +297,48 @@ def sweep(cli, stage, boundary):
                 detail=f"op-B {stage}, boundary {boundary}, limit 100->60; committed {erp} (expect {expect})")
 
 
+# ---------------------------------------------------------------- boundary-conformance invariant
+# §5.1 (Approved) does not mandate a universal boundary; it allows an action-class-specific one
+# that is "explicitly defined, stable for that action class, and grounded in the actual
+# cancellation or commitment semantics of the execution path. By that point, the maximum
+# remaining consequential exposure must already be bounded and accounted against the applicable
+# authority." The sweep above measures exposure at each boundary; this check enforces the last
+# clause. It separates a Guardian that merely DECLARES a boundary from one that HONOURS it.
+#
+# Modelling assumption, stated plainly (this is what "grounded in the actual cancellation
+# semantics" means): once an operation is at or past its declared boundary it can no longer be
+# cancelled, so the resource commits it regardless of what the Guardian's books later say. The
+# check drives that reality on the wire.
+BCONF_BOUNDARIES = ["queue_admission", "dispatch", "resource_acceptance"]   # an immune-but-
+#   uncommitted window exists only before transaction_commit; at commit, exposure == the commit
+#   itself, so the condition is trivially met and there is nothing to separate.
+
+
+def boundary_conformance(cli, boundary):
+    """op-B is advanced to its DECLARED boundary (immune, not yet committed), then the limit is
+    cut 100 -> 60. A competing op-C for 20 then arrives: it fits only if op-B's immune exposure
+    was freed. A Guardian that honours the boundary keeps that exposure accounted (op-B stays
+    reserved across the cut) and DENIES op-C; boundary-blind releases op-B's exposure on the cut
+    and ADMITS op-C, so when op-B commits anyway the grant overruns, unaccounted at the boundary.
+    PASS = the maximum remaining exposure stayed bounded and accounted at the declared boundary."""
+    c = f"BCONF-{boundary}"
+    cli.control("control/setBoundary", c, boundary=boundary)
+    cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
+    cli.consume(c, "op-B", 40)
+    cli.result(c, "op-B", rg.BOUNDARY_STAGE[boundary])      # advance op-B to its declared boundary -> immune
+    cli.control("control/setLimit", c, new_limit=60)
+    b_after = (cli.state(c).get("reservations", {}).get("op-B", {}) or {}).get("state")
+    opc = cli.consume(c, "op-C", 20)                        # fits only if op-B's exposure was freed
+    cli.erp_commit(c, "op-B", 40); cli.result(c, "op-B", "committed")   # immune: it lands regardless
+    if opc == "allow":
+        cli.erp_commit(c, "op-C", 20); cli.result(c, "op-C", "committed")
+    st = cli.state(c); erp = cli.erp_total(c); flags = _flags(st)
+    accounted = opc == "deny" and b_after in (rg.RESERVED, rg.HELD)
+    return dict(policy=cli.policy, boundary=boundary, opc=opc, erp=erp, op_b_after_cut=b_after,
+                overrun_flagged=("overrun" in flags), verdict="PASS" if accounted else "FAIL",
+                detail=f"boundary {boundary}: op-B {b_after} after the cut, op-C={opc}, committed {erp}")
+
+
 # ---------------------------------------------------------------- non-idempotent ledger variant
 def ledger_case(cli):
     """Transport resend of op-B. reconciling signals 'already done', so a careful agent does
@@ -338,6 +382,22 @@ def run_sweep(port):
     return rows
 
 
+def run_bconf(port):
+    """Run the boundary-conformance invariant against the honouring Guardian and the
+    boundary-blind foil. The foil must FAIL where reconciling PASSes, or the check proves
+    nothing (placebo discipline: a correct Guardian passes, a plausible-but-wrong one fails)."""
+    rows = []
+    for policy in ("reconciling", "boundary-blind"):
+        srv = rg.make_server(policy, port)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        time.sleep(0.2)
+        cli = Client(f"http://127.0.0.1:{port}/acs", policy, w.new_uuid())
+        rows += [boundary_conformance(cli, b) for b in BCONF_BOUNDARIES]
+        srv.shutdown()
+        port += 1
+    return rows
+
+
 def run_ledger(port):
     rows = []
     for policy in ("reconciling", "resource-reliant"):
@@ -358,13 +418,15 @@ def main():
         "naive": run_policy("naive", 8811, CASES_NAIVE),
     }
     sweep_rows = run_sweep(8812)
+    bconf_rows = run_bconf(8816)
     ledger_rows = run_ledger(8820)
 
     with open(os.path.join(RES, "matrix_transcript.jsonl"), "w") as f:
         for t in TX:
             f.write(json.dumps(t) + "\n")
     with open(os.path.join(RES, "matrix_scorecard.json"), "w") as f:
-        json.dump({"scorecards": scorecards, "sweep": sweep_rows, "ledger": ledger_rows}, f, indent=2)
+        json.dump({"scorecards": scorecards, "sweep": sweep_rows,
+                   "boundary_conformance": bconf_rows, "ledger": ledger_rows}, f, indent=2)
 
     print("T1–T9 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
     order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7", "T8", "T9"]
@@ -392,6 +454,16 @@ def main():
         print(f"  {s:<18}{cells}")
     allpass = all(r["verdict"] == "PASS" for r in sweep_rows)
     print(f"  all {len(sweep_rows)} cells {'PASS' if allpass else 'HAVE FAILURES'}: immune=80 when op-B's stage >= boundary, else re-admitted=40")
+
+    print("\nBoundary-conformance invariant — does a Guardian that DECLARES a boundary honour it?")
+    print("  (§5.1: at the declared boundary the max remaining exposure must be bounded and accounted)")
+    bc = {(r["policy"], r["boundary"]): r for r in bconf_rows}
+    print(f"  {'policy':<16}" + "".join(f"{abbr[b]:<12}" for b in BCONF_BOUNDARIES))
+    for policy in ("reconciling", "boundary-blind"):
+        cells = "".join(f"{bc[(policy, b)]['verdict']+'('+str(bc[(policy, b)]['erp'])+')':<12}" for b in BCONF_BOUNDARIES)
+        print(f"  {policy:<16}{cells}")
+    print("  reconciling keeps the immune op's exposure accounted (op-C denied, committed 80, overrun flagged);")
+    print("  boundary-blind frees it on the cut (op-C admitted, committed 100) — declares the boundary, doesn't honour it")
 
     print("\nLedger variant — transport resend of op-B; who provides idempotency, Guardian or resource:")
     for r in ledger_rows:

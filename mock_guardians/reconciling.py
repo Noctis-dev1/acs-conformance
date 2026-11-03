@@ -33,13 +33,16 @@ drift scenario and digests (Paolo Costanzo). It encodes ONE reading of the still
 commitment-boundary question (valid-at-admission, overrun-flagged); the alternative
 (all-times invariant / effective-limit) is noted in SCENARIO_T1_T9.md, not silently chosen.
 
-Three variants, selected by name:
+Four variants, selected by name:
   reconciling      - the design above.
   naive            - releases on a lost ack, does not re-admit on a limit cut, re-admits a
                      resent operation_id (double-counts its own books), does not flag. Foil.
   resource-reliant - reconciling, except it outsources idempotency to the resource: on a
                      resend it re-authorizes execution instead of signalling "already done",
                      so it holds only when the ERP ledger itself dedupes.
+  boundary-blind   - declares a commitment boundary but does not honour it: on a limit cut it
+                     releases a reservation already past the boundary, freeing exposure the
+                     resource will still consume. Foil for §5.1's boundary-conformance condition.
 
 The commitment boundary is a declared per-grant parameter (control/setBoundary; default
 "dispatch"): the execution stage at and beyond which a limit cut can no longer cancel an
@@ -82,19 +85,32 @@ BEHAVIOUR = {
     "reconciling":      dict(idempotent_resend=True, emit_idempotent_signal=True,
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
                              flag_overrun=True, deny_on_revoke=True,
-                             hold_partial_residual=True, flag_reconciliation=True),
+                             hold_partial_residual=True, flag_reconciliation=True,
+                             honour_boundary=True),
     # foil: each switch flipped to the classic failure
     "naive":            dict(idempotent_resend=False, emit_idempotent_signal=False,
                              hold_on_lost_ack=False, readmit_on_limit_cut=False,
                              flag_overrun=False, deny_on_revoke=False,
-                             hold_partial_residual=False, flag_reconciliation=False),
+                             hold_partial_residual=False, flag_reconciliation=False,
+                             honour_boundary=True),
     # reconciling in every respect EXCEPT it outsources idempotency to the resource: on a
     # resend it re-authorizes execution instead of signalling "already done", so it holds
     # only when the ERP ledger itself dedupes. Isolates Guardian- vs resource-provided guarantees.
     "resource-reliant": dict(idempotent_resend=True, emit_idempotent_signal=False,
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
                              flag_overrun=True, deny_on_revoke=True,
-                             hold_partial_residual=True, flag_reconciliation=True),
+                             hold_partial_residual=True, flag_reconciliation=True,
+                             honour_boundary=True),
+    # foil for §5.1's boundary condition: it DECLARES a commitment boundary (control/setBoundary
+    # works, so it passes the "explicitly defined" prong) but does not honour it. On a limit cut
+    # it treats a reservation already past the boundary as cancellable and releases it, freeing
+    # exposure the resource will still consume. A competitor is then admitted into that headroom
+    # and the grant overruns, unaccounted at the boundary. Reconciling in all else.
+    "boundary-blind":   dict(idempotent_resend=True, emit_idempotent_signal=True,
+                             hold_on_lost_ack=True, readmit_on_limit_cut=True,
+                             flag_overrun=True, deny_on_revoke=True,
+                             hold_partial_residual=True, flag_reconciliation=True,
+                             honour_boundary=False),
 }
 
 
@@ -253,15 +269,19 @@ class Policy:
             g.limit = new_limit
             released = []
             if self.b["readmit_on_limit_cut"]:
+                honour = self.b.get("honour_boundary", True)
                 b_idx = STAGE_ORDER.index(BOUNDARY_STAGE[g.commitment_boundary])
                 # re-admit, in admission order, only reservations not yet past the commitment
                 # boundary. Anything at or beyond it is already-committed execution: not
-                # cancelled, and any resulting overrun is flagged instead.
+                # cancelled, and any resulting overrun is flagged instead. A Guardian that
+                # declares a boundary but does NOT honour it (honour_boundary=False) skips this
+                # guard and releases a past-boundary reservation too — freeing exposure the
+                # resource will still consume, which is the §5.1 boundary-conformance failure.
                 for op in g.order:
                     r = g.reservations.get(op)
                     if not r or r["state"] != RESERVED:
                         continue
-                    if STAGE_ORDER.index(r["stage"]) >= b_idx:
+                    if honour and STAGE_ORDER.index(r["stage"]) >= b_idx:
                         continue
                     avail = new_limit - g.committed_total() - g.outstanding_total(exclude=op)
                     if r["amount"] > avail:

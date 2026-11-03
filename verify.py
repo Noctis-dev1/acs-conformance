@@ -139,6 +139,25 @@ def verify_matrix():
     if sweep_rows:
         print(f"  sweep ({len(sweep_rows)} stage×boundary cells): {'all reproduce' if sweep_ok else 'MISMATCH above'}")
 
+    # boundary conformance: re-derive from op-C's decision on the wire, not the scorecard.
+    # A Guardian honours its declared boundary iff the competing op-C is DENIED (the immune
+    # op's exposure stayed accounted); the foil admits it and the ledger overruns.
+    bconf_ok = True
+    for r in doc.get("boundary_conformance", []):
+        policy, b = r["policy"], r["boundary"]
+        evs = events.get((policy, f"BCONF-{b}"), [])
+        opc = [e["decision"] for e in evs if e["ev"] == "consume" and e["op"] == "op-C"]
+        erp = erp_total(evs)
+        recomputed = "PASS" if (opc and opc[-1] == "deny") else "FAIL"
+        good = recomputed == r["verdict"] and erp == r["erp"]
+        ok = ok and good
+        bconf_ok = bconf_ok and good
+        if not good:
+            print(f"  bconf {policy}/{b}: {recomputed} (op-C={opc[-1] if opc else None}, erp {erp}) !=sc({r['verdict']}/{r['erp']})")
+    bconf_rows = doc.get("boundary_conformance", [])
+    if bconf_rows:
+        print(f"  boundary conformance ({len(bconf_rows)} cells): {'all reproduce' if bconf_ok else 'MISMATCH above'}")
+
     for r in doc.get("ledger", []):
         evs = events.get((r["policy"], f"LEDGER-{r['policy']}-{r['ledger']}"), [])
         erp = erp_total(evs) if r["ledger"] == "idempotent" else erp_sum(evs)
