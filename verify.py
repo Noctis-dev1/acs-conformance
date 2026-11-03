@@ -42,7 +42,8 @@ def verify_matrix():
     if not (os.path.exists(tpath) and os.path.exists(spath)):
         return None
     tx = [json.loads(l) for l in open(tpath) if l.strip()]
-    scorecard = json.load(open(spath))["scorecards"]
+    doc = json.load(open(spath))
+    scorecard = doc["scorecards"]
 
     events = {}
     for t in tx:
@@ -103,6 +104,33 @@ def verify_matrix():
             ok = ok and good
             cells.append(f"{case}={recomputed}" + ("" if good else f"!=sc({r['verdict']})"))
         print(f"  {policy:<13}{'  '.join(cells)}")
+
+    def erp_sum(evs):                       # non-idempotent ledger: every commit counts
+        return sum(e["amount"] for e in evs if e["ev"] == "erp_commit")
+
+    # independent copy of the stage/boundary order — do not trust the Guardian's module
+    S_ORDER = ["reserved", "queued", "dispatched", "resource_accepted", "committed"]
+    S_BOUNDARY = {"queue_admission": "queued", "dispatch": "dispatched",
+                  "resource_acceptance": "resource_accepted", "transaction_commit": "committed"}
+
+    for r in doc.get("sweep", []):
+        b = r["case"]
+        erp = erp_total(events.get(("reconciling", f"SWEEP-{b}"), []))
+        immune = S_ORDER.index(S_BOUNDARY[b]) <= S_ORDER.index("dispatched")
+        recomputed = "PASS" if erp == (80 if immune else 40) else "FAIL"
+        good = recomputed == r["verdict"] and erp == r["erp"]
+        ok = ok and good
+        print(f"  sweep {b:<20}{recomputed} ({erp})" + ("" if good else f" !=sc({r['verdict']}/{r['erp']})"))
+
+    for r in doc.get("ledger", []):
+        evs = events.get((r["policy"], f"LEDGER-{r['policy']}-{r['ledger']}"), [])
+        erp = erp_total(evs) if r["ledger"] == "idempotent" else erp_sum(evs)
+        recomputed = "HOLD" if erp <= 100 else "DOUBLE-SPEND"
+        good = recomputed == r["verdict"] and erp == r["erp"]
+        ok = ok and good
+        print(f"  ledger {r['policy']}/{r['ledger']}: {recomputed} ({erp})"
+              + ("" if good else f" !=sc({r['verdict']}/{r['erp']})"))
+
     return ok
 
 

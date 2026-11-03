@@ -42,11 +42,33 @@ Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconci
 
 T3 passing for both is the point of T3: a correct **release** on a confirmed non-effect is as required as holding on an unresolved one. T4 is an enforcement posture rather than a foil, so it runs against the reconciling Guardian under both settings.
 
+## Two further axes, now executable
+
+**Commitment-boundary sweep.** The boundary is a declared per-grant parameter (`control/setBoundary`), not a fixed assumption. The sweep dispatches op-B, cuts the limit 100 → 60, and runs the case at each boundary:
+
+| boundary | op-B | committed |
+|---|---|---|
+| queue_admission | immune (past the boundary) | 80, overrun flagged |
+| dispatch | immune | 80, overrun flagged |
+| resource_acceptance | re-admitted, released | 40 |
+| transaction_commit | re-admitted, released | 40 |
+
+The earlier the boundary, the more of the operation sits past it, so the grant absorbs a larger overrun — Paolo's observation, measured. Which boundary §5.1 should mandate per action class is still an open normative question (below); the suite makes the consequence of each choice concrete.
+
+**Non-idempotent ledger variant.** The matrix ledger is idempotent on `operation_id` by default, but that is a switch. Running a transport resend of op-B against both ledgers, with a `resource-reliant` Guardian alongside `reconciling`, separates a guarantee the Guardian provides from one the resource provides:
+
+| Guardian | idempotent ledger | non-idempotent ledger |
+|---|---|---|
+| `reconciling` (stable operation_id) | HOLD (80) | HOLD (80) |
+| `resource-reliant` (trusts the ERP key) | HOLD (80) | DOUBLE-SPEND (120) |
+
+`reconciling` holds under both because it binds consumption to the operation itself. `resource-reliant` holds only while the resource dedupes; flip the resource and the guarantee is gone, and the Guardian's own books do not even register the second commit. That is the line between a Guardian-provided and a resource-provided guarantee, made testable.
+
 ## What is open, and not silently chosen
 
 The thread has not settled these, and neither does this suite. It encodes one reading and says so:
 
-1. **Commitment boundary.** Boris's point that "first dispatch" should not be universal, but one of several possible boundaries (queue admission, dispatch, resource acceptance, transaction commit), is right. This suite fixes the boundary at **dispatch**, isolated at a single point so the cases can be re-run at the others without a rewrite. That sweep is a planned extension, not yet implemented.
+1. **Which boundary is normative.** The boundary is now a declared parameter and the sweep runs the cases at each (above). What stays open is the normative choice Boris and t-iida are weighing: whether §5.1 should mandate a specific boundary per action class, and which one. The suite measures the consequence of each; it does not pick one.
 2. **Is a committed overrun (T2) a violation or valid-plus-reconcile?** Paolo's open question #1. This encodes reading **(a)**: valid at admission, the overrun flagged on the grant — not reading (b), where the effective limit simply cannot drop below consumed-plus-in-flight. The gap measured is identical (20 in T2); only its label differs.
 3. **Partial fulfilment** (the ERP fills 20 of 40) — Paolo's open question #2 — is **not yet encoded**. The intended shape, from the thread, is a confirmed effect carrying an observed amount (requested 40 / observed 20) with the remainder reserved until the ERP closes the key. It is the next case to add.
 4. **Per-attempt records.** The operation/attempt split is encoded as a stable `operation_id` with idempotent resend, which covers the transport-resend case (T5). A distinct `attempt_id` carrying its own matched/mismatched authorization record, as in Paolo's scenario, is not yet modeled separately; a basis mismatch is flagged on the operation. Per-attempt records are the other extension I'd add.

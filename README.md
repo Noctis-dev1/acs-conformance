@@ -39,7 +39,7 @@ The OWASP delegated-authority discussion took the 3×40 case well past the race,
 | `reconciling` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
 | `naive` | FAIL | FAIL | PASS | n/a | n/a | FAIL | FAIL | FAIL |
 
-The model is credited to the thread's participants; the encoding — and the open questions it does not pretend to settle (the commitment boundary, whether a committed overrun is a violation, partial fulfilment) — is written up in [SCENARIO_T1_T7.md](SCENARIO_T1_T7.md).
+`matrix.py` also runs a commitment-boundary sweep (the same case at each declared boundary) and a non-idempotent ledger variant (separating a guarantee the Guardian provides from one the resource provides). The model is credited to the thread's participants; the encoding, and the questions it does not pretend to settle (which boundary is normative, whether a committed overrun is a violation, partial fulfilment), are written up in [SCENARIO_T1_T7.md](SCENARIO_T1_T7.md).
 
 ## Running it against the real reference Guardian
 

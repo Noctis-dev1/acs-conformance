@@ -17,7 +17,12 @@ overrun that must be flagged rather than silent, an idempotent resend, a safe re
 revocation. One reading of the still-open commitment-boundary question is encoded
 (valid-at-admission, overrun-flagged); the alternative is noted in SCENARIO_T1_T7.md.
 
-  python3 matrix.py            # run both Guardians through the matrix, write results
+It also runs a commitment-boundary sweep (the same limit-cut case at each declared
+boundary) and a non-idempotent ledger variant (a transport resend under both ledgers, with
+a resource-reliant Guardian), which separate a guarantee the Guardian provides from one the
+resource provides.
+
+  python3 matrix.py            # T1-T7 + the boundary sweep + the ledger variant, write results
   python3 verify.py            # re-derive every verdict from the transcript
 """
 from __future__ import annotations
@@ -40,11 +45,14 @@ TX: list[dict] = []
 class Client:
     """A well-behaved agent over the ACS wire, plus the independent ERP ledger."""
 
-    def __init__(self, url: str, policy: str, session: str):
+    def __init__(self, url: str, policy: str, session: str, idempotent: bool = True):
         self.c = w.GuardianClient(url)
         self.policy = policy
         self.session = session
-        self.erp: dict[tuple, int] = {}            # (case, op) -> amount, idempotent by op
+        self.idempotent = idempotent               # does the ERP ledger dedupe by operation_id?
+        self.erp: dict[tuple, int] = {}            # idempotent ledger: (case, op) -> amount
+        self.erp_log: list[tuple] = []             # non-idempotent ledger: every commit appended
+        self.last_codes: list[str] = []            # reason_codes from the most recent consume
 
     def _rec(self, **kw):
         TX.append({"policy": self.policy, **kw})
@@ -56,6 +64,7 @@ class Client:
         resp = self.c.call(env)
         d = w.decision_of(resp)
         codes = (resp.get("result") or {}).get("reason_codes") or []
+        self.last_codes = codes
         self._rec(case=case, ev="consume", op=op, amount=amt, decision=d, codes=codes)
         return d
 
@@ -77,11 +86,16 @@ class Client:
         return self.control("control/state", case)
 
     def erp_commit(self, case, op, amt):
-        self.erp[(case, op)] = amt                 # idempotent: op_id is the key
-        self._rec(case=case, ev="erp_commit", op=op, amount=amt)
+        if self.idempotent:
+            self.erp[(case, op)] = amt             # idempotent ledger: op_id is the key
+        else:
+            self.erp_log.append((case, op, amt))   # non-idempotent ledger: every commit lands
+        self._rec(case=case, ev="erp_commit", op=op, amount=amt, idempotent=self.idempotent)
 
     def erp_total(self, case):
-        return sum(a for (g, o), a in self.erp.items() if g == case)
+        if self.idempotent:
+            return sum(a for (g, o), a in self.erp.items() if g == case)
+        return sum(a for (g, o, a) in self.erp_log if g == case)
 
     # a careful agent dispatches an op only if the Guardian still holds a valid reservation
     def maybe_dispatch(self, case, op, amt):
@@ -206,6 +220,51 @@ def T7(cli):
                 detail=f"committed {erp}, re-confirm={reconfirm}, post-revoke-commit flag={post}")
 
 
+# ---------------------------------------------------------------- commitment-boundary sweep
+BOUNDARIES = ["queue_admission", "dispatch", "resource_acceptance", "transaction_commit"]
+
+
+def sweep(cli, boundary):
+    """op-B reaches the 'dispatched' stage, then the limit is cut 100 -> 60. Whether B is
+    immune (already past the declared commitment boundary, so it commits and the grant
+    overruns) or re-admitted (released) follows from where the boundary sits relative to B's
+    stage. The expected outcome is derived from the boundary, so this is a conformance check,
+    not only a demonstration."""
+    c = f"SWEEP-{boundary}"
+    cli.control("control/setBoundary", c, boundary=boundary)
+    cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
+    cli.consume(c, "op-B", 40)
+    cli.result(c, "op-B", "dispatched")           # B reaches the 'dispatched' stage
+    cli.control("control/setLimit", c, new_limit=60)
+    if (cli.state(c).get("reservations", {}).get("op-B", {}) or {}).get("state") == rg.RESERVED:
+        cli.erp_commit(c, "op-B", 40); cli.result(c, "op-B", "committed")   # immune: it proceeds
+    erp = cli.erp_total(c); flags = _flags(cli.state(c))
+    immune = rg.STAGE_ORDER.index(rg.BOUNDARY_STAGE[boundary]) <= rg.STAGE_ORDER.index("dispatched")
+    expect = 80 if immune else 40
+    return dict(case=boundary, erp=erp, immune=immune, overrun=("overrun" in flags),
+                verdict="PASS" if erp == expect else "FAIL",
+                detail=f"B dispatched, limit 100->60; committed {erp} (expect {expect})")
+
+
+# ---------------------------------------------------------------- non-idempotent ledger variant
+def ledger_case(cli):
+    """Transport resend of op-B. reconciling signals 'already done', so a careful agent does
+    not re-execute; resource-reliant re-authorizes and the agent re-dispatches, trusting the
+    ERP to dedupe. Run under both ledgers, this separates a guarantee the Guardian provides
+    from one the resource provides."""
+    ledger = "idempotent" if cli.idempotent else "non-idempotent"
+    c = f"LEDGER-{cli.policy}-{ledger}"
+    cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
+    cli.consume(c, "op-B", 40); cli.result(c, "op-B", "dispatched"); cli.erp_commit(c, "op-B", 40); cli.result(c, "op-B", "committed")
+    d = cli.consume(c, "op-B", 40)                 # transport resend of the same operation
+    if d == "allow" and "idempotent_existing" not in cli.last_codes:
+        cli.erp_commit(c, "op-B", 40)              # Guardian re-authorized; agent re-dispatches
+    erp = cli.erp_total(c)
+    return dict(policy=cli.policy, ledger=ledger, erp=erp,
+                verdict="HOLD" if erp <= 100 else "DOUBLE-SPEND",
+                detail=f"{cli.policy} on a {ledger} ledger: committed {erp}")
+
+
 CASES_ALL = [T1, T2, T3, T4a, T4b, T5, T6, T7]
 CASES_NAIVE = [T1, T2, T3, T5, T6, T7]             # T4 is an enforcement posture, not a foil for naive
 
@@ -220,16 +279,43 @@ def run_policy(policy: str, port: int, cases):
     return rows
 
 
+def run_sweep(port):
+    srv = rg.make_server("reconciling", port)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    time.sleep(0.2)
+    cli = Client(f"http://127.0.0.1:{port}/acs", "reconciling", w.new_uuid())
+    rows = [sweep(cli, b) for b in BOUNDARIES]
+    srv.shutdown()
+    return rows
+
+
+def run_ledger(port):
+    rows = []
+    for policy in ("reconciling", "resource-reliant"):
+        for idem in (True, False):
+            srv = rg.make_server(policy, port)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            time.sleep(0.2)
+            cli = Client(f"http://127.0.0.1:{port}/acs", policy, w.new_uuid(), idempotent=idem)
+            rows.append(ledger_case(cli))
+            srv.shutdown()
+            port += 1
+    return rows
+
+
 def main():
     scorecards = {
         "reconciling": run_policy("reconciling", 8810, CASES_ALL),
         "naive": run_policy("naive", 8811, CASES_NAIVE),
     }
+    sweep_rows = run_sweep(8812)
+    ledger_rows = run_ledger(8820)
+
     with open(os.path.join(RES, "matrix_transcript.jsonl"), "w") as f:
         for t in TX:
             f.write(json.dumps(t) + "\n")
     with open(os.path.join(RES, "matrix_scorecard.json"), "w") as f:
-        json.dump({"scorecards": scorecards}, f, indent=2)
+        json.dump({"scorecards": scorecards, "sweep": sweep_rows, "ledger": ledger_rows}, f, indent=2)
 
     print("T1–T7 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
     order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7"]
@@ -243,6 +329,16 @@ def main():
     print("\nWhat each case isolates:")
     for r in scorecards["reconciling"]:
         print(f"  {r['case']:<5} {r['measures']}")
+
+    print("\nCommitment-boundary sweep — op-B dispatched, limit cut 100->60, boundary varied:")
+    for r in sweep_rows:
+        tag = "immune, overrun" if r["immune"] else "re-admitted, held"
+        print(f"  {r['case']:<22}{r['verdict']:<6} committed {r['erp']:<4}({tag})")
+
+    print("\nLedger variant — transport resend of op-B; who provides idempotency, Guardian or resource:")
+    for r in ledger_rows:
+        print(f"  {r['policy']:<18}{r['ledger']:<16}{r['verdict']:<13} committed {r['erp']}")
+
     print(f"\nFrozen evidence in {RES}/  —  verify with: python3 verify.py")
 
 

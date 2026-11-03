@@ -24,17 +24,26 @@ drift scenario and digests (Paolo Costanzo). It encodes ONE reading of the still
 commitment-boundary question (valid-at-admission, overrun-flagged); the alternative
 (all-times invariant / effective-limit) is noted in SCENARIO_T1_T7.md, not silently chosen.
 
-Two variants, selected by name:
-  reconciling - the design above.
-  naive       - releases on a lost ack, does not re-admit on a limit cut, re-admits a
-                resent operation_id (double-counts its own books), and does not flag. Foil.
+Three variants, selected by name:
+  reconciling      - the design above.
+  naive            - releases on a lost ack, does not re-admit on a limit cut, re-admits a
+                     resent operation_id (double-counts its own books), does not flag. Foil.
+  resource-reliant - reconciling, except it outsources idempotency to the resource: on a
+                     resend it re-authorizes execution instead of signalling "already done",
+                     so it holds only when the ERP ledger itself dedupes.
 
-Test-harness control methods (control/*, NOT ACS wire methods — clearly namespaced) let
-the runner drive the scenarios and read ground state:
-  control/setLimit {grant_id, new_limit}
-  control/revoke   {grant_id}
-  control/setBasis {grant_id, definition_digest?, enforce?}
-  control/state    {grant_id} -> {limit, revoked, consumed, outstanding, reservations, flags}
+The commitment boundary is a declared per-grant parameter (control/setBoundary; default
+"dispatch"): the execution stage at and beyond which a limit cut can no longer cancel an
+operation. A reservation advances through stages (reserved -> queued -> dispatched ->
+resource_accepted -> committed) as the runner reports toolCallResult statuses.
+
+Test-harness control methods (control/*, NOT ACS wire methods, clearly namespaced) let the
+runner drive the scenarios and read ground state:
+  control/setLimit    {grant_id, new_limit}
+  control/revoke      {grant_id}
+  control/setBoundary {grant_id, boundary}   (queue_admission|dispatch|resource_acceptance|transaction_commit)
+  control/setBasis    {grant_id, definition_digest?, enforce?}
+  control/state       {grant_id} -> {limit, revoked, commitment_boundary, consumed, outstanding, reservations, flags}
 
 Run one:  python3 reconciling.py --policy reconciling --port 8810
 """
@@ -49,16 +58,30 @@ ACS_VERSION = "0.1.0"
 DEFAULT_LIMIT = 100
 
 # reservation states
-RESERVED, IN_FLIGHT, COMMITTED, NON_EFFECT, RELEASED, HELD = (
-    "reserved", "in_flight", "committed", "non_effect", "released", "held")
+RESERVED, COMMITTED, NON_EFFECT, RELEASED, HELD = (
+    "reserved", "committed", "non_effect", "released", "held")
+
+# execution-pipeline stage a live reservation has reached, in order. The commitment
+# boundary is the stage at and beyond which a limit cut can no longer cancel the operation.
+STAGE_ORDER = ["reserved", "queued", "dispatched", "resource_accepted", "committed"]
+BOUNDARY_STAGE = {"queue_admission": "queued", "dispatch": "dispatched",
+                  "resource_acceptance": "resource_accepted", "transaction_commit": "committed"}
 
 BEHAVIOUR = {
-    # correct design the thread converged on
-    "reconciling": dict(idempotent_resend=True, hold_on_lost_ack=True,
-                        readmit_on_limit_cut=True, flag_overrun=True, deny_on_revoke=True),
+    # the correct design the thread converged on
+    "reconciling":      dict(idempotent_resend=True, emit_idempotent_signal=True,
+                             hold_on_lost_ack=True, readmit_on_limit_cut=True,
+                             flag_overrun=True, deny_on_revoke=True),
     # foil: each switch flipped to the classic failure
-    "naive":       dict(idempotent_resend=False, hold_on_lost_ack=False,
-                        readmit_on_limit_cut=False, flag_overrun=False, deny_on_revoke=False),
+    "naive":            dict(idempotent_resend=False, emit_idempotent_signal=False,
+                             hold_on_lost_ack=False, readmit_on_limit_cut=False,
+                             flag_overrun=False, deny_on_revoke=False),
+    # reconciling in every respect EXCEPT it outsources idempotency to the resource: on a
+    # resend it re-authorizes execution instead of signalling "already done", so it holds
+    # only when the ERP ledger itself dedupes. Isolates Guardian- vs resource-provided guarantees.
+    "resource-reliant": dict(idempotent_resend=True, emit_idempotent_signal=False,
+                             hold_on_lost_ack=True, readmit_on_limit_cut=True,
+                             flag_overrun=True, deny_on_revoke=True),
 }
 
 
@@ -68,7 +91,8 @@ class Grant:
         self.revoked = False
         self.enforce_basis = False
         self.cur_def_digest = "def-v1"
-        self.reservations: dict[str, dict] = {}   # op_id -> {amount,state,def_digest,release_reason,flag}
+        self.commitment_boundary = "dispatch"     # declared per grant; default matches base T1-T7
+        self.reservations: dict[str, dict] = {}   # op_id -> {amount,state,stage,def_digest,release_reason,flag}
         self.order: list[str] = []
         self.flags: list[dict] = []
 
@@ -77,7 +101,7 @@ class Grant:
 
     def outstanding_total(self, exclude: str | None = None) -> int:
         return sum(r["amount"] for op, r in self.reservations.items()
-                   if op != exclude and r["state"] in (RESERVED, IN_FLIGHT, HELD))
+                   if op != exclude and r["state"] in (RESERVED, HELD))
 
     def add_flag(self, ftype: str, detail: str):
         self.flags.append({"type": ftype, "detail": detail})
@@ -103,15 +127,19 @@ class Policy:
             existing = g.reservations.get(operation_id)
             if existing:
                 if self.b["idempotent_resend"]:
-                    if existing["state"] in (RESERVED, IN_FLIGHT, COMMITTED, HELD):
-                        return "allow", "idempotent: existing reservation", ["idempotent_existing"]
+                    if existing["state"] in (RESERVED, COMMITTED, HELD):
+                        # a known operation is never a second consumption. Whether the agent
+                        # may re-execute is signalled by emit_idempotent_signal; a Guardian
+                        # that outsources dedup to the resource withholds that signal.
+                        codes = ["idempotent_existing"] if self.b["emit_idempotent_signal"] else []
+                        return "allow", "existing operation", codes
                     if existing["state"] in (RELEASED, NON_EFFECT):
                         return "deny", f"re-confirm after release: {existing.get('release_reason','released')}", \
                                [existing.get("release_reason", "released")]
                 # naive: fall through and admit AGAIN (double-counts its own books)
             avail = g.limit - g.committed_total() - g.outstanding_total()
             if amount <= avail:
-                g.reservations[operation_id] = {"amount": amount, "state": RESERVED,
+                g.reservations[operation_id] = {"amount": amount, "state": RESERVED, "stage": "reserved",
                                                 "def_digest": g.cur_def_digest, "release_reason": None}
                 g.order.append(operation_id)
                 return "allow", "reserved against the grant", []
@@ -124,19 +152,21 @@ class Policy:
             r = g.reservations.get(operation_id)
             if not r:
                 return
-            if status == "dispatched":
-                if r["state"] == RESERVED:
-                    if r["def_digest"] != g.cur_def_digest:
-                        # authority-basis drift at first dispatch
-                        if g.enforce_basis:
-                            r["state"] = HELD           # hold for reauthorization, no attempt
-                            r["release_reason"] = "basis_reauth_required"
-                            return
-                        g.add_flag("basis_mismatch", f"{operation_id}: definition digest drifted")
-                        r["flag"] = "basis_mismatch"
-                    r["state"] = IN_FLIGHT
+            if status in ("queued", "dispatched", "resource_accepted"):
+                if r["state"] != RESERVED:
+                    return
+                if status == "dispatched" and r["def_digest"] != g.cur_def_digest:
+                    # authority-basis drift checked at first dispatch
+                    if g.enforce_basis:
+                        r["state"] = HELD               # hold for reauthorization, no attempt
+                        r["release_reason"] = "basis_reauth_required"
+                        return
+                    g.add_flag("basis_mismatch", f"{operation_id}: definition digest drifted")
+                    r["flag"] = "basis_mismatch"
+                r["stage"] = status                     # advance along the execution pipeline
             elif status == "committed":
                 r["state"] = COMMITTED
+                r["stage"] = "committed"
                 if g.revoked:
                     g.add_flag("post_revocation_commit", f"{operation_id} committed after revoke")
                 if self.b["flag_overrun"] and g.committed_total() > g.limit:
@@ -158,10 +188,15 @@ class Policy:
             g.limit = new_limit
             released = []
             if self.b["readmit_on_limit_cut"]:
-                # re-admit the not-yet-dispatched in admission order against the new limit
+                b_idx = STAGE_ORDER.index(BOUNDARY_STAGE[g.commitment_boundary])
+                # re-admit, in admission order, only reservations not yet past the commitment
+                # boundary. Anything at or beyond it is already-committed execution: not
+                # cancelled, and any resulting overrun is flagged instead.
                 for op in g.order:
                     r = g.reservations.get(op)
                     if not r or r["state"] != RESERVED:
+                        continue
+                    if STAGE_ORDER.index(r["stage"]) >= b_idx:
                         continue
                     avail = new_limit - g.committed_total() - g.outstanding_total(exclude=op)
                     if r["amount"] > avail:
@@ -185,6 +220,13 @@ class Policy:
                         released.append(op)
             return {"released": released, "revoked": True}
 
+    def set_boundary(self, session, grant_id, boundary):
+        with self.lock:
+            g = self._grant(session, grant_id)
+            if boundary in BOUNDARY_STAGE:
+                g.commitment_boundary = boundary
+            return {"commitment_boundary": g.commitment_boundary}
+
     def set_basis(self, session, grant_id, definition_digest=None, enforce=None):
         with self.lock:
             g = self._grant(session, grant_id)
@@ -198,8 +240,10 @@ class Policy:
         with self.lock:
             g = self._grant(session, grant_id)
             return {"limit": g.limit, "revoked": g.revoked,
+                    "commitment_boundary": g.commitment_boundary,
                     "consumed": g.committed_total(), "outstanding": g.outstanding_total(),
-                    "reservations": {op: {"amount": r["amount"], "state": r["state"]}
+                    "reservations": {op: {"amount": r["amount"], "state": r["state"],
+                                          "stage": r.get("stage", "reserved")}
                                      for op, r in g.reservations.items()},
                     "flags": list(g.flags)}
 
@@ -277,6 +321,9 @@ class Handler(BaseHTTPRequestHandler):
                                                              payload.get("new_limit"))))
         if method == "control/revoke":
             return self._send(self._ok(req_id, pol.revoke(session, payload.get("grant_id"))))
+        if method == "control/setBoundary":
+            return self._send(self._ok(req_id, pol.set_boundary(session, payload.get("grant_id"),
+                                                               payload.get("boundary"))))
         if method == "control/setBasis":
             return self._send(self._ok(req_id, pol.set_basis(session, payload.get("grant_id"),
                                                             payload.get("definition_digest"),

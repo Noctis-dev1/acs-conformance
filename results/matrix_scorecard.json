@@ -118,5 +118,69 @@
         "detail": "committed 80, re-confirm=deny, post-revoke-commit flag=True"
       }
     ]
-  }
+  },
+  "sweep": [
+    {
+      "case": "queue_admission",
+      "erp": 80,
+      "immune": true,
+      "overrun": true,
+      "verdict": "PASS",
+      "detail": "B dispatched, limit 100->60; committed 80 (expect 80)"
+    },
+    {
+      "case": "dispatch",
+      "erp": 80,
+      "immune": true,
+      "overrun": true,
+      "verdict": "PASS",
+      "detail": "B dispatched, limit 100->60; committed 80 (expect 80)"
+    },
+    {
+      "case": "resource_acceptance",
+      "erp": 40,
+      "immune": false,
+      "overrun": false,
+      "verdict": "PASS",
+      "detail": "B dispatched, limit 100->60; committed 40 (expect 40)"
+    },
+    {
+      "case": "transaction_commit",
+      "erp": 40,
+      "immune": false,
+      "overrun": false,
+      "verdict": "PASS",
+      "detail": "B dispatched, limit 100->60; committed 40 (expect 40)"
+    }
+  ],
+  "ledger": [
+    {
+      "policy": "reconciling",
+      "ledger": "idempotent",
+      "erp": 80,
+      "verdict": "HOLD",
+      "detail": "reconciling on a idempotent ledger: committed 80"
+    },
+    {
+      "policy": "reconciling",
+      "ledger": "non-idempotent",
+      "erp": 80,
+      "verdict": "HOLD",
+      "detail": "reconciling on a non-idempotent ledger: committed 80"
+    },
+    {
+      "policy": "resource-reliant",
+      "ledger": "idempotent",
+      "erp": 80,
+      "verdict": "HOLD",
+      "detail": "resource-reliant on a idempotent ledger: committed 80"
+    },
+    {
+      "policy": "resource-reliant",
+      "ledger": "non-idempotent",
+      "erp": 120,
+      "verdict": "DOUBLE-SPEND",
+      "detail": "resource-reliant on a non-idempotent ledger: committed 120"
+    }
+  ]
 }
