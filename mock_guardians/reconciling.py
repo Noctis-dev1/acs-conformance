@@ -9,9 +9,11 @@ For a shared cumulative grant it implements:
     second consumption
   - holding the reservation on a lost acknowledgement (never auto-release)
   - reconciliation against committed truth: committed | non_effect | unresolved
-  - partial fulfilment (T8): a result carries an observed effect (observed < reserved); the
-    books track the observed amount and the unfilled remainder stays reserved until the key
-    closes (settle), when it commits or is released — never freed before it lands
+  - partial fulfilment (T8, Paolo Costanzo's §5.1 rule): a result confirms an observed
+    effect (observed < reserved); consumption counts the observed amount and the remainder
+    stays reserved until the ERP confirms no more fills or the key's deadline passes
+    (key_closed), only then released. A fill after that (late_fill) is counted and the grant
+    is flagged reconciliation_required, handled like a commit after a non_effect verdict
   - limit change mid-flight: re-admit the not-yet-dispatched against the new limit; never
     cancel an in-flight operation — flag an overrun instead
   - revocation: release the not-yet-dispatched, resolve the in-flight, flag a
@@ -79,17 +81,20 @@ BEHAVIOUR = {
     # the correct design the thread converged on
     "reconciling":      dict(idempotent_resend=True, emit_idempotent_signal=True,
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
-                             flag_overrun=True, deny_on_revoke=True, hold_partial_residual=True),
+                             flag_overrun=True, deny_on_revoke=True,
+                             hold_partial_residual=True, flag_reconciliation=True),
     # foil: each switch flipped to the classic failure
     "naive":            dict(idempotent_resend=False, emit_idempotent_signal=False,
                              hold_on_lost_ack=False, readmit_on_limit_cut=False,
-                             flag_overrun=False, deny_on_revoke=False, hold_partial_residual=False),
+                             flag_overrun=False, deny_on_revoke=False,
+                             hold_partial_residual=False, flag_reconciliation=False),
     # reconciling in every respect EXCEPT it outsources idempotency to the resource: on a
     # resend it re-authorizes execution instead of signalling "already done", so it holds
     # only when the ERP ledger itself dedupes. Isolates Guardian- vs resource-provided guarantees.
     "resource-reliant": dict(idempotent_resend=True, emit_idempotent_signal=False,
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
-                             flag_overrun=True, deny_on_revoke=True, hold_partial_residual=True),
+                             flag_overrun=True, deny_on_revoke=True,
+                             hold_partial_residual=True, flag_reconciliation=True),
 }
 
 
@@ -205,27 +210,39 @@ class Policy:
                     r["state"] = RELEASED               # naive bug: frees budget already spent
                     r["release_reason"] = "auto_released_on_lost_ack"
             elif status == "partial":
-                # the resource fulfilled only `observed` of the reserved amount
+                # the resource confirmed only `observed` of the reserved amount. Consumption
+                # counts the observed effect; the remainder stays RESERVED (held) until the
+                # key closes — Paolo Costanzo's §5.1 rule.
                 if r["state"] not in (RESERVED, HELD):
                     return
                 r["committed_amount"] = observed
                 r["residual"] = r["amount"] - (observed or 0)
                 r["stage"] = "committed"
                 if self.b["hold_partial_residual"]:
-                    r["state"] = PARTIAL                # residual stays reserved until the key closes
+                    r["state"] = PARTIAL                # remainder held until the key closes
                 else:
                     r["state"] = COMMITTED              # naive: commit the observed, free the remainder
                     r["residual"] = 0
                 if self.b["flag_overrun"] and g.committed_total() > g.limit:
                     g.add_flag("overrun", f"committed {g.committed_total()} over limit {g.limit}")
-            elif status == "settle":
-                # the ERP closed the key; `observed` is the final effect for this operation
+            elif status == "key_closed":
+                # the ERP confirms no more fills, or the key's deadline passed: release the
+                # held remainder. The confirmed effect stands; the reservation is now closed.
+                if r["state"] == PARTIAL:
+                    r["residual"] = 0
+                    r["state"] = COMMITTED
+                    r["release_reason"] = "no_more_fills"
+                r["closed"] = True
+            elif status == "late_fill":
+                # a fill arriving AFTER the key closed. Handled like a commit after a
+                # non_effect verdict (Paolo's rule): it is counted, and the grant is flagged
+                # reconciliation_required rather than the overrun being absorbed silently.
                 r["committed_amount"] = observed
                 r["residual"] = 0
                 r["state"] = COMMITTED
                 r["stage"] = "committed"
-                if g.revoked:
-                    g.add_flag("post_revocation_commit", f"{operation_id} committed after revoke")
+                if r.get("closed") and self.b["flag_reconciliation"]:
+                    g.add_flag("reconciliation_required", f"{operation_id}: fill after key closed")
                 if self.b["flag_overrun"] and g.committed_total() > g.limit:
                     g.add_flag("overrun", f"committed {g.committed_total()} over limit {g.limit}")
 

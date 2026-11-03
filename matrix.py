@@ -226,22 +226,26 @@ def T7(cli):
 
 
 def T8(cli):
-    c = "T8"   # partial fulfilment: op-B requests 40, the resource fills only 20, the
-    #            remainder stays reserved until the ERP closes the key (Paolo's open question #2)
+    c = "T8"   # partial fulfilment (Paolo Costanzo's §5.1 rule): op-B requests 40, the ERP
+    #            confirms 20 (consumption -> 60); the other 20 stays reserved until the ERP
+    #            confirms no more fills / the key's deadline passes, only then released; a fill
+    #            after that is counted AND the grant is flagged reconciliation_required.
     cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
     cli.consume(c, "op-B", 40)
     cli.result(c, "op-B", "dispatched")
-    cli.result(c, "op-B", "partial", observed=20); cli.erp_commit(c, "op-B", 20)   # 20 of 40 landed
-    opc = cli.consume(c, "op-C", 40)               # competes for budget; the held residual must block it
-    if opc == "allow":                             # (naive frees the residual and admits op-C)
+    cli.result(c, "op-B", "partial", observed=20); cli.erp_commit(c, "op-B", 20)   # ERP confirms 20 of 40
+    opc = cli.consume(c, "op-C", 40)               # competes while the remainder is reserved
+    if opc == "allow":                             # (naive freed the remainder and admits op-C)
         cli.result(c, "op-C", "dispatched"); cli.erp_commit(c, "op-C", 40); cli.result(c, "op-C", "committed")
-    cli.result(c, "op-B", "settle", observed=40); cli.erp_commit(c, "op-B", 40)     # key closes: the other 20 lands
+    cli.result(c, "op-B", "key_closed")            # ERP confirms no more fills -> remainder released
+    cli.result(c, "op-B", "late_fill", observed=40); cli.erp_commit(c, "op-B", 40)  # a fill arrives after close
     st = cli.state(c); erp = cli.erp_total(c); flags = _flags(st)
-    ok = opc == "deny" and erp == 80 and st.get("consumed") == 80 and "overrun" not in flags
-    return dict(case=c, measures="partial fulfilment: books track the OBSERVED effect and the unfilled remainder stays reserved until the key closes (a competing op is denied; the late settlement lands within the cap)",
+    ok = (opc == "deny" and erp == 80 and st.get("consumed") == 80
+          and "reconciliation_required" in flags and "overrun" not in flags)
+    return dict(case=c, measures="partial fulfilment (Paolo's rule): confirmed effect counted, remainder held until the key closes (a competing op denied meanwhile); a fill after close is counted and the grant flagged reconciliation_required, not silently absorbed",
                 erp=erp, opc=opc, consumed=st.get("consumed"),
                 verdict="PASS" if ok else "FAIL",
-                detail=f"op-C={opc}, committed {erp}, guardian consumed {st.get('consumed')}")
+                detail=f"op-C={opc}, committed {erp}, reconciliation_required={'reconciliation_required' in flags}")
 
 
 def T9(cli):
@@ -265,28 +269,30 @@ def T9(cli):
 
 # ---------------------------------------------------------------- commitment-boundary sweep
 BOUNDARIES = ["queue_admission", "dispatch", "resource_acceptance", "transaction_commit"]
+SWEEP_STAGES = ["queued", "dispatched", "resource_accepted"]   # op-B's stage when the limit drops
 
 
-def sweep(cli, boundary):
-    """op-B reaches the 'dispatched' stage, then the limit is cut 100 -> 60. Whether B is
-    immune (already past the declared commitment boundary, so it commits and the grant
-    overruns) or re-admitted (released) follows from where the boundary sits relative to B's
-    stage. The expected outcome is derived from the boundary, so this is a conformance check,
-    not only a demonstration."""
-    c = f"SWEEP-{boundary}"
+def sweep(cli, stage, boundary):
+    """op-B is advanced to `stage` (admitted, dispatched, or resource-accepted) BEFORE the limit
+    is cut 100 -> 60, with the commitment boundary set to `boundary`. Whether op-B is immune
+    (at/past the boundary, so it proceeds and the grant overruns) or re-admitted (released)
+    follows purely from stage vs boundary. Running every stage x boundary separates boundaries
+    that a dispatched-only setup conflates — a queued-but-not-dispatched op is immune at
+    queue_admission yet re-admitted at dispatch (Paolo Costanzo's point)."""
+    c = f"SWEEP-{stage}-{boundary}"
     cli.control("control/setBoundary", c, boundary=boundary)
     cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
     cli.consume(c, "op-B", 40)
-    cli.result(c, "op-B", "dispatched")           # B reaches the 'dispatched' stage
+    cli.result(c, "op-B", stage)                  # advance op-B to the pre-cut stage
     cli.control("control/setLimit", c, new_limit=60)
     if (cli.state(c).get("reservations", {}).get("op-B", {}) or {}).get("state") == rg.RESERVED:
         cli.erp_commit(c, "op-B", 40); cli.result(c, "op-B", "committed")   # immune: it proceeds
     erp = cli.erp_total(c); flags = _flags(cli.state(c))
-    immune = rg.STAGE_ORDER.index(rg.BOUNDARY_STAGE[boundary]) <= rg.STAGE_ORDER.index("dispatched")
+    immune = rg.STAGE_ORDER.index(stage) >= rg.STAGE_ORDER.index(rg.BOUNDARY_STAGE[boundary])
     expect = 80 if immune else 40
-    return dict(case=boundary, erp=erp, immune=immune, overrun=("overrun" in flags),
+    return dict(stage=stage, boundary=boundary, erp=erp, immune=immune, overrun=("overrun" in flags),
                 verdict="PASS" if erp == expect else "FAIL",
-                detail=f"B dispatched, limit 100->60; committed {erp} (expect {expect})")
+                detail=f"op-B {stage}, boundary {boundary}, limit 100->60; committed {erp} (expect {expect})")
 
 
 # ---------------------------------------------------------------- non-idempotent ledger variant
@@ -327,7 +333,7 @@ def run_sweep(port):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     time.sleep(0.2)
     cli = Client(f"http://127.0.0.1:{port}/acs", "reconciling", w.new_uuid())
-    rows = [sweep(cli, b) for b in BOUNDARIES]
+    rows = [sweep(cli, s, b) for s in SWEEP_STAGES for b in BOUNDARIES]
     srv.shutdown()
     return rows
 
@@ -375,10 +381,17 @@ def main():
     for r in scorecards["reconciling"]:
         print(f"  {r['case']:<5} {r['measures']}")
 
-    print("\nCommitment-boundary sweep — op-B dispatched, limit cut 100->60, boundary varied:")
-    for r in sweep_rows:
-        tag = "immune, overrun" if r["immune"] else "re-admitted, held"
-        print(f"  {r['case']:<22}{r['verdict']:<6} committed {r['erp']:<4}({tag})")
+    abbr = {"queue_admission": "queue_adm", "dispatch": "dispatch",
+            "resource_acceptance": "res_accept", "transaction_commit": "txn_commit"}
+    byc = {(r["stage"], r["boundary"]): r for r in sweep_rows}
+    print("\nCommitment-boundary sweep — committed total; op-B stage (down) vs boundary (across), limit 100->60:")
+    corner = "stage \\ boundary"
+    print(f"  {corner:<18}" + "".join(f"{abbr[b]:<12}" for b in BOUNDARIES))
+    for s in SWEEP_STAGES:
+        cells = "".join(f"{byc[(s, b)]['erp']:<12}" for b in BOUNDARIES)
+        print(f"  {s:<18}{cells}")
+    allpass = all(r["verdict"] == "PASS" for r in sweep_rows)
+    print(f"  all {len(sweep_rows)} cells {'PASS' if allpass else 'HAVE FAILURES'}: immune=80 when op-B's stage >= boundary, else re-admitted=40")
 
     print("\nLedger variant — transport resend of op-B; who provides idempotency, Guardian or resource:")
     for r in ledger_rows:

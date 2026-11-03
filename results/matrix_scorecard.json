@@ -68,12 +68,12 @@
       },
       {
         "case": "T8",
-        "measures": "partial fulfilment: books track the OBSERVED effect and the unfilled remainder stays reserved until the key closes (a competing op is denied; the late settlement lands within the cap)",
+        "measures": "partial fulfilment (Paolo's rule): confirmed effect counted, remainder held until the key closes (a competing op denied meanwhile); a fill after close is counted and the grant flagged reconciliation_required, not silently absorbed",
         "erp": 80,
         "opc": "deny",
         "consumed": 80,
         "verdict": "PASS",
-        "detail": "op-C=deny, committed 80, guardian consumed 80"
+        "detail": "op-C=deny, committed 80, reconciliation_required=True"
       },
       {
         "case": "T9",
@@ -137,47 +137,123 @@
       },
       {
         "case": "T8",
-        "measures": "partial fulfilment: books track the OBSERVED effect and the unfilled remainder stays reserved until the key closes (a competing op is denied; the late settlement lands within the cap)",
+        "measures": "partial fulfilment (Paolo's rule): confirmed effect counted, remainder held until the key closes (a competing op denied meanwhile); a fill after close is counted and the grant flagged reconciliation_required, not silently absorbed",
         "erp": 120,
         "opc": "allow",
         "consumed": 120,
         "verdict": "FAIL",
-        "detail": "op-C=allow, committed 120, guardian consumed 120"
+        "detail": "op-C=allow, committed 120, reconciliation_required=False"
       }
     ]
   },
   "sweep": [
     {
-      "case": "queue_admission",
+      "stage": "queued",
+      "boundary": "queue_admission",
       "erp": 80,
       "immune": true,
       "overrun": true,
       "verdict": "PASS",
-      "detail": "B dispatched, limit 100->60; committed 80 (expect 80)"
+      "detail": "op-B queued, boundary queue_admission, limit 100->60; committed 80 (expect 80)"
     },
     {
-      "case": "dispatch",
+      "stage": "queued",
+      "boundary": "dispatch",
+      "erp": 40,
+      "immune": false,
+      "overrun": false,
+      "verdict": "PASS",
+      "detail": "op-B queued, boundary dispatch, limit 100->60; committed 40 (expect 40)"
+    },
+    {
+      "stage": "queued",
+      "boundary": "resource_acceptance",
+      "erp": 40,
+      "immune": false,
+      "overrun": false,
+      "verdict": "PASS",
+      "detail": "op-B queued, boundary resource_acceptance, limit 100->60; committed 40 (expect 40)"
+    },
+    {
+      "stage": "queued",
+      "boundary": "transaction_commit",
+      "erp": 40,
+      "immune": false,
+      "overrun": false,
+      "verdict": "PASS",
+      "detail": "op-B queued, boundary transaction_commit, limit 100->60; committed 40 (expect 40)"
+    },
+    {
+      "stage": "dispatched",
+      "boundary": "queue_admission",
       "erp": 80,
       "immune": true,
       "overrun": true,
       "verdict": "PASS",
-      "detail": "B dispatched, limit 100->60; committed 80 (expect 80)"
+      "detail": "op-B dispatched, boundary queue_admission, limit 100->60; committed 80 (expect 80)"
     },
     {
-      "case": "resource_acceptance",
+      "stage": "dispatched",
+      "boundary": "dispatch",
+      "erp": 80,
+      "immune": true,
+      "overrun": true,
+      "verdict": "PASS",
+      "detail": "op-B dispatched, boundary dispatch, limit 100->60; committed 80 (expect 80)"
+    },
+    {
+      "stage": "dispatched",
+      "boundary": "resource_acceptance",
       "erp": 40,
       "immune": false,
       "overrun": false,
       "verdict": "PASS",
-      "detail": "B dispatched, limit 100->60; committed 40 (expect 40)"
+      "detail": "op-B dispatched, boundary resource_acceptance, limit 100->60; committed 40 (expect 40)"
     },
     {
-      "case": "transaction_commit",
+      "stage": "dispatched",
+      "boundary": "transaction_commit",
       "erp": 40,
       "immune": false,
       "overrun": false,
       "verdict": "PASS",
-      "detail": "B dispatched, limit 100->60; committed 40 (expect 40)"
+      "detail": "op-B dispatched, boundary transaction_commit, limit 100->60; committed 40 (expect 40)"
+    },
+    {
+      "stage": "resource_accepted",
+      "boundary": "queue_admission",
+      "erp": 80,
+      "immune": true,
+      "overrun": true,
+      "verdict": "PASS",
+      "detail": "op-B resource_accepted, boundary queue_admission, limit 100->60; committed 80 (expect 80)"
+    },
+    {
+      "stage": "resource_accepted",
+      "boundary": "dispatch",
+      "erp": 80,
+      "immune": true,
+      "overrun": true,
+      "verdict": "PASS",
+      "detail": "op-B resource_accepted, boundary dispatch, limit 100->60; committed 80 (expect 80)"
+    },
+    {
+      "stage": "resource_accepted",
+      "boundary": "resource_acceptance",
+      "erp": 80,
+      "immune": true,
+      "overrun": true,
+      "verdict": "PASS",
+      "detail": "op-B resource_accepted, boundary resource_acceptance, limit 100->60; committed 80 (expect 80)"
+    },
+    {
+      "stage": "resource_accepted",
+      "boundary": "transaction_commit",
+      "erp": 40,
+      "immune": false,
+      "overrun": false,
+      "verdict": "PASS",
+      "detail": "op-B resource_accepted, boundary transaction_commit, limit 100->60; committed 40 (expect 40)"
     }
   ],
   "ledger": [

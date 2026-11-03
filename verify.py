@@ -93,7 +93,9 @@ def verify_matrix():
         if case == "T8":
             opc = decisions(evs, "op-C")
             return "PASS" if (erp == 80 and st.get("consumed") == 80
-                              and opc and opc[-1] == "deny" and "overrun" not in flags) else "FAIL"
+                              and opc and opc[-1] == "deny"
+                              and "reconciliation_required" in flags
+                              and "overrun" not in flags) else "FAIL"
         if case == "T9":
             bstate = (st.get("reservations", {}).get("op-B", {}) or {}).get("state")
             return "EXPECTED-MISS" if (st.get("definition_digest") == "def-v1"
@@ -122,14 +124,20 @@ def verify_matrix():
     S_BOUNDARY = {"queue_admission": "queued", "dispatch": "dispatched",
                   "resource_acceptance": "resource_accepted", "transaction_commit": "committed"}
 
+    sweep_ok = True
     for r in doc.get("sweep", []):
-        b = r["case"]
-        erp = erp_total(events.get(("reconciling", f"SWEEP-{b}"), []))
-        immune = S_ORDER.index(S_BOUNDARY[b]) <= S_ORDER.index("dispatched")
+        stage, b = r["stage"], r["boundary"]
+        erp = erp_total(events.get(("reconciling", f"SWEEP-{stage}-{b}"), []))
+        immune = S_ORDER.index(stage) >= S_ORDER.index(S_BOUNDARY[b])
         recomputed = "PASS" if erp == (80 if immune else 40) else "FAIL"
         good = recomputed == r["verdict"] and erp == r["erp"]
         ok = ok and good
-        print(f"  sweep {b:<20}{recomputed} ({erp})" + ("" if good else f" !=sc({r['verdict']}/{r['erp']})"))
+        sweep_ok = sweep_ok and good
+        if not good:
+            print(f"  sweep {stage}/{b}: {recomputed} ({erp}) !=sc({r['verdict']}/{r['erp']})")
+    sweep_rows = doc.get("sweep", [])
+    if sweep_rows:
+        print(f"  sweep ({len(sweep_rows)} stage×boundary cells): {'all reproduce' if sweep_ok else 'MISMATCH above'}")
 
     for r in doc.get("ledger", []):
         evs = events.get((r["policy"], f"LEDGER-{r['policy']}-{r['ledger']}"), [])

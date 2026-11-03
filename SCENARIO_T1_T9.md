@@ -39,23 +39,22 @@ Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconci
 | T5 | a transport resend of a known `operation_id` is idempotent (allowed once; books = ledger) | PASS | FAIL (rejects it as new work) |
 | T6 | a limit cut below already-committed consumption flags an overrun on the grant | PASS | FAIL (silent) |
 | T7 | revocation releases the not-yet-dispatched; nothing new commits; a prior commit isn't retro-flagged | PASS | FAIL (dispatches past revocation) |
-| T8 | partial fulfilment (20 of 40 lands): books track the **observed** effect, the remainder stays reserved until the key closes — a competing op is denied, the late settlement lands within the cap | PASS | FAIL (frees the remainder; a competing op is admitted and the settlement double-spends to 120) |
+| T8 | partial fulfilment (ERP confirms 20 of 40): consumption counts the confirmed effect, the remainder stays reserved until the key closes, then a fill after close is counted and the grant is flagged **reconciliation_required**; a competing op is denied while the remainder is held | PASS | FAIL (frees the remainder; a competing op is admitted and the late fill double-spends to 120, unflagged) |
 | T9 | unchanged definition digest, changed server behaviour: a digest attests the declaration, not the behaviour — an **expected-miss** by construction | E-MISS | n/a |
 
 T3 passing for both is the point of T3: a correct **release** on a confirmed non-effect is as required as holding on an unresolved one. T4 is an enforcement posture rather than a foil, so it runs against the reconciling Guardian under both settings. T9 is not scored pass/fail: it is an **expected-miss**, the executable statement that attestation-by-digest is necessary but not sufficient — the digest proves the declaration is stable and says nothing about the behaviour behind it, so no honest digest-based check could catch this, and the suite records the ceiling rather than pretending to cover it. Flagging it would be a false positive, which is the fail condition.
 
 ## Two further axes, now executable
 
-**Commitment-boundary sweep.** The boundary is a declared per-grant parameter (`control/setBoundary`), not a fixed assumption. The sweep dispatches op-B, cuts the limit 100 → 60, and runs the case at each boundary:
+**Commitment-boundary sweep.** The boundary is a declared per-grant parameter (`control/setBoundary`), not a fixed assumption. The sweep advances op-B to each pre-cut stage, cuts the limit 100 → 60, and runs that against each boundary. Running stage × boundary, rather than fixing op-B at dispatched, separates boundaries a dispatched-only setup conflates: a queued-but-not-dispatched op is immune at queue_admission yet re-admitted at dispatch. This refinement is due to Paolo Costanzo, who noted the original dispatched-only sweep could not tell the two apart. Committed total per cell; immune (80) when op-B's stage is at or beyond the boundary, else re-admitted (40):
 
-| boundary | op-B | committed |
-|---|---|---|
-| queue_admission | immune (past the boundary) | 80, overrun flagged |
-| dispatch | immune | 80, overrun flagged |
-| resource_acceptance | re-admitted, released | 40 |
-| transaction_commit | re-admitted, released | 40 |
+| op-B stage \ boundary | queue_admission | dispatch | resource_acceptance | transaction_commit |
+|---|---|---|---|---|
+| queued | 80 | 40 | 40 | 40 |
+| dispatched | 80 | 80 | 40 | 40 |
+| resource_accepted | 80 | 80 | 80 | 40 |
 
-The earlier the boundary, the more of the operation sits past it, so the grant absorbs a larger overrun — Paolo's observation, measured. Which boundary §5.1 should mandate per action class is still an open normative question (below); the suite makes the consequence of each choice concrete.
+The earlier the boundary relative to the operation's stage, the more of the operation sits past it, so the grant absorbs a larger overrun: Paolo's observation, measured. Which boundary §5.1 should mandate per action class is still an open normative question (below); the suite makes the consequence of each choice concrete.
 
 **Non-idempotent ledger variant.** The matrix ledger is idempotent on `operation_id` by default, but that is a switch. Running a transport resend of op-B against both ledgers, with a `resource-reliant` Guardian alongside `reconciling`, separates a guarantee the Guardian provides from one the resource provides:
 
@@ -72,7 +71,7 @@ The thread has not settled these, and neither does this suite. It encodes one re
 
 1. **Which boundary is normative.** The boundary is now a declared parameter and the sweep runs the cases at each (above). What stays open is the normative choice Boris and t-iida are weighing: whether §5.1 should mandate a specific boundary per action class, and which one. The suite measures the consequence of each; it does not pick one.
 2. **Is a committed overrun (T2) a violation or valid-plus-reconcile?** Paolo's open question #1. This encodes reading **(a)**: valid at admission, the overrun flagged on the grant — not reading (b), where the effective limit simply cannot drop below consumed-plus-in-flight. The gap measured is identical (20 in T2); only its label differs.
-3. **Partial fulfilment** (the ERP fills 20 of 40) — Paolo's open question #2 — is now **encoded as T8**. It takes one reading: a result carries an observed effect (requested 40 / observed 20), the books track the observed amount, and the unfilled remainder stays reserved until the key closes, when it commits or is released — it is never freed before it lands. The alternative reading (commit the observed amount and reconcile the remainder as a fresh request) would free budget the key may still consume; the thread has not settled which is normative, and T8 measures the consequence of the hold-until-close reading.
+3. **Partial fulfilment** (the ERP confirms 20 of 40) — Paolo's open question #2 — is **encoded as T8**, following the rule Paolo specified: consumption counts the confirmed effect (60), the remaining 20 stays reserved until the ERP confirms no more fills or the key's deadline passes, only then released; and a fill arriving after that is handled like a commit after a non_effect verdict, counted with the grant flagged `reconciliation_required`. The competing-op denial while the remainder is held shows the reservation is real, not cosmetic. What stays open is whether a late fill should be allowed to exceed the grant at all, or only logged for reconciliation as encoded here.
 4. **Per-attempt records.** The operation/attempt split is encoded as a stable `operation_id` with idempotent resend, which covers the transport-resend case (T5). A distinct `attempt_id` carrying its own matched/mismatched authorization record, as in Paolo's scenario, is not yet modeled separately; a basis mismatch is flagged on the operation. Per-attempt records are the other extension I'd add.
 
 ## Reproduce
