@@ -1,6 +1,8 @@
 # Three layers, one scenario
 
-### Comparing ARC declaration checks, Guardian commitment-boundary enforcement, and an independent ledger over the OWASP ACS §5.1 delegated-authority cases
+### Comparing ARC declaration checks, Guardian commitment-boundary enforcement, and an independent ledger over the OWASP AIMM Pillar 2 §5.1 delegated-authority cases
+
+This suite tests OWASP Agent Control Standard (ACS) Guardians; the delegated-authority cases it drives against them come from OWASP AIMM Pillar 2 §5.1, a separate document. The two are kept distinct throughout.
 
 A reproducible comparison between [ARC (Agent Role Contracts)](https://github.com/suirindo/agent-role-contracts) and this conformance suite, prepared with ARC's author for the OWASP GenAI Security Project §5.1 workstream. The point is to locate the seam between the layers, not to rank them. The three answer different questions about the same scenario, and none validates another.
 
@@ -47,6 +49,6 @@ python3 verify.py       # re-derive every Guardian and ledger verdict from the w
 
 ## Credits and cross-reference
 
-The reconciliation model and these cases come from the OWASP GenAI Security Project §5.1 delegated-authority discussion (Boris Abuzov, t-iida, Sol_ni_shko, Paolo Costanzo). ARC is at [github.com/suirindo/agent-role-contracts](https://github.com/suirindo/agent-role-contracts). The ARC fixture and the declaration-check column are prepared by ARC's author; the Guardian and ledger columns are this suite's. The comparison is intended to live in both repositories, each linking the other.
+The reconciliation model and these cases come from the OWASP GenAI Security Project's AIMM Pillar 2 §5.1 delegated-authority discussion (Boris Abuzov, t-iida, Sol_ni_shko, Paolo Costanzo). ARC is at [github.com/suirindo/agent-role-contracts](https://github.com/suirindo/agent-role-contracts). The ARC fixture and the declaration-check column are prepared by ARC's author; the Guardian and ledger columns are this suite's. The comparison is intended to live in both repositories, each linking the other.
 
 **Status.** Guardian and ledger columns measured and verified as of this commit. ARC column pending the ARC fixture and confirmation of the G1 subject reading.

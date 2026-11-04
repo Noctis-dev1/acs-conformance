@@ -11,7 +11,7 @@ Built in response to [issue #311](https://github.com/GenAI-Security-Project/agen
 
 ```
 python3 run_conformance.py --selftest          # Layer A + B against the three bundled mock Guardians
-python3 matrix.py                              # the T1–T10 reconciliation matrix (OWASP §5.1 cases)
+python3 matrix.py                              # the T1–T10 reconciliation matrix (OWASP AIMM Pillar 2 §5.1 cases)
 python3 verify.py                              # re-derive every verdict from the wire transcripts
 python3 run_conformance.py --guardian-url http://localhost:8787/acs   # point Layer A/B at a real Guardian
 ```
