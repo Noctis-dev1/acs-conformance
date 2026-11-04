@@ -413,6 +413,28 @@
 {"policy": "boundary-blind", "case": "BCONF-resource_acceptance", "ev": "erp_commit", "op": "op-C", "amount": 20, "idempotent": true}
 {"policy": "boundary-blind", "case": "BCONF-resource_acceptance", "ev": "result", "op": "op-C", "status": "committed", "observed": null}
 {"policy": "boundary-blind", "case": "BCONF-resource_acceptance", "ev": "control", "method": "control/state", "args": {}, "response": {"limit": 60, "revoked": false, "commitment_boundary": "resource_acceptance", "definition_digest": "def-v1", "behaviour_tag": "b1", "consumed": 100, "outstanding": 0, "reservations": {"op-A": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-B": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-C": {"amount": 20, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}}, "flags": [{"type": "overrun", "detail": "committed 80 over limit 60"}, {"type": "overrun", "detail": "committed 100 over limit 60"}]}}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "control", "method": "control/setBasis", "args": {"enforce": false}, "response": {"definition_digest": "def-v1", "enforce_basis": false, "behaviour_tag": "b1"}}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "consume", "op": "op-A", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "result", "op": "op-A", "status": "dispatched", "observed": null}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "erp_commit", "op": "op-A", "amount": 40, "idempotent": true}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "result", "op": "op-A", "status": "committed", "observed": null}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "consume", "op": "op-B", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "control", "method": "control/setBasis", "args": {"definition_digest": "def-v2"}, "response": {"definition_digest": "def-v2", "enforce_basis": false, "behaviour_tag": "b1"}}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "result", "op": "op-B", "status": "dispatched", "observed": null}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "erp_commit", "op": "op-B", "amount": 40, "idempotent": true}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "result", "op": "op-B", "status": "committed", "observed": null}
+{"policy": "reconciling", "case": "CMP-t4u-reconciling", "ev": "control", "method": "control/state", "args": {}, "response": {"limit": 100, "revoked": false, "commitment_boundary": "dispatch", "definition_digest": "def-v2", "behaviour_tag": "b1", "consumed": 80, "outstanding": 0, "reservations": {"op-A": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-B": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}}, "flags": [{"type": "basis_mismatch", "detail": "op-B: definition digest drifted"}]}}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "control", "method": "control/setBasis", "args": {"enforce": false}, "response": {"definition_digest": "def-v1", "enforce_basis": false, "behaviour_tag": "b1"}}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "consume", "op": "op-A", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "result", "op": "op-A", "status": "dispatched", "observed": null}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "erp_commit", "op": "op-A", "amount": 40, "idempotent": true}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "result", "op": "op-A", "status": "committed", "observed": null}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "consume", "op": "op-B", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "control", "method": "control/setBasis", "args": {"definition_digest": "def-v2"}, "response": {"definition_digest": "def-v2", "enforce_basis": false, "behaviour_tag": "b1"}}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "result", "op": "op-B", "status": "dispatched", "observed": null}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "erp_commit", "op": "op-B", "amount": 40, "idempotent": true}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "result", "op": "op-B", "status": "committed", "observed": null}
+{"policy": "declaration-bound", "case": "CMP-t4u-declaration-bound", "ev": "control", "method": "control/state", "args": {}, "response": {"limit": 100, "revoked": false, "commitment_boundary": "dispatch", "definition_digest": "def-v2", "behaviour_tag": "b1", "consumed": 80, "outstanding": 0, "reservations": {"op-A": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-B": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}}, "flags": []}}
 {"policy": "reconciling", "case": "LEDGER-reconciling-idempotent", "ev": "consume", "op": "op-A", "amount": 40, "decision": "allow", "codes": []}
 {"policy": "reconciling", "case": "LEDGER-reconciling-idempotent", "ev": "result", "op": "op-A", "status": "dispatched", "observed": null}
 {"policy": "reconciling", "case": "LEDGER-reconciling-idempotent", "ev": "erp_commit", "op": "op-A", "amount": 40, "idempotent": true}

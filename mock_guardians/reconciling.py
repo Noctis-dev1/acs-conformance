@@ -33,16 +33,19 @@ drift scenario and digests (Paolo Costanzo). It encodes ONE reading of the still
 commitment-boundary question (valid-at-admission, overrun-flagged); the alternative
 (all-times invariant / effective-limit) is noted in SCENARIO_T1_T10.md, not silently chosen.
 
-Four variants, selected by name:
-  reconciling      - the design above.
-  naive            - releases on a lost ack, does not re-admit on a limit cut, re-admits a
-                     resent operation_id (double-counts its own books), does not flag. Foil.
-  resource-reliant - reconciling, except it outsources idempotency to the resource: on a
-                     resend it re-authorizes execution instead of signalling "already done",
-                     so it holds only when the ERP ledger itself dedupes.
-  boundary-blind   - declares a commitment boundary but does not honour it: on a limit cut it
-                     releases a reservation already past the boundary, freeing exposure the
-                     resource will still consume. Foil for §5.1's boundary-conformance condition.
+Five variants, selected by name:
+  reconciling       - the design above.
+  naive             - releases on a lost ack, does not re-admit on a limit cut, re-admits a
+                      resent operation_id (double-counts its own books), does not flag. Foil.
+  resource-reliant  - reconciling, except it outsources idempotency to the resource: on a
+                      resend it re-authorizes execution instead of signalling "already done",
+                      so it holds only when the ERP ledger itself dedupes.
+  boundary-blind    - declares a commitment boundary but does not honour it: on a limit cut it
+                      releases a reservation already past the boundary, freeing exposure the
+                      resource will still consume. Foil for §5.1's boundary-conformance condition.
+  declaration-bound - binds only the declaration, not the underlying tool definition: it does not
+                      check the definition digest, so a tool redefined under an unchanged
+                      declaration drifts past it unflagged. Used in the ARC comparison.
 
 The commitment boundary is a declared per-grant parameter (control/setBoundary; default
 "dispatch"): the execution stage at and beyond which a limit cut can no longer cancel an
@@ -80,19 +83,23 @@ STAGE_ORDER = ["reserved", "queued", "dispatched", "resource_accepted", "committ
 BOUNDARY_STAGE = {"queue_admission": "queued", "dispatch": "dispatched",
                   "resource_acceptance": "resource_accepted", "transaction_commit": "committed"}
 
+# bind_definition: does the Guardian record a content digest of the underlying tool definition
+# at admission and check it for drift at the commitment boundary? A Guardian that does catches a
+# tool redefined under an unchanged name (T4); one that binds only the declaration (ARC's layer)
+# does not see an underlying-definition change, by construction. Used by the ARC comparison.
 BEHAVIOUR = {
     # the correct design the thread converged on
     "reconciling":      dict(idempotent_resend=True, emit_idempotent_signal=True,
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
                              flag_overrun=True, deny_on_revoke=True,
                              hold_partial_residual=True, flag_reconciliation=True,
-                             honour_boundary=True),
+                             honour_boundary=True, bind_definition=True),
     # foil: each switch flipped to the classic failure
     "naive":            dict(idempotent_resend=False, emit_idempotent_signal=False,
                              hold_on_lost_ack=False, readmit_on_limit_cut=False,
                              flag_overrun=False, deny_on_revoke=False,
                              hold_partial_residual=False, flag_reconciliation=False,
-                             honour_boundary=True),
+                             honour_boundary=True, bind_definition=True),
     # reconciling in every respect EXCEPT it outsources idempotency to the resource: on a
     # resend it re-authorizes execution instead of signalling "already done", so it holds
     # only when the ERP ledger itself dedupes. Isolates Guardian- vs resource-provided guarantees.
@@ -100,7 +107,7 @@ BEHAVIOUR = {
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
                              flag_overrun=True, deny_on_revoke=True,
                              hold_partial_residual=True, flag_reconciliation=True,
-                             honour_boundary=True),
+                             honour_boundary=True, bind_definition=True),
     # foil for §5.1's boundary condition: it DECLARES a commitment boundary (control/setBoundary
     # works, so it passes the "explicitly defined" prong) but does not honour it. On a limit cut
     # it treats a reservation already past the boundary as cancellable and releases it, freeing
@@ -110,7 +117,16 @@ BEHAVIOUR = {
                              hold_on_lost_ack=True, readmit_on_limit_cut=True,
                              flag_overrun=True, deny_on_revoke=True,
                              hold_partial_residual=True, flag_reconciliation=True,
-                             honour_boundary=False),
+                             honour_boundary=False, bind_definition=True),
+    # reconciling in every respect EXCEPT it binds only the declaration, not the underlying tool
+    # definition: with bind_definition=False it does not record or check the definition digest, so
+    # a tool redefined under an unchanged declaration drifts past it unflagged. The runtime-layer
+    # analogue of ARC's declaration-time blind spot; used in the ARC comparison (T4-underlying).
+    "declaration-bound": dict(idempotent_resend=True, emit_idempotent_signal=True,
+                             hold_on_lost_ack=True, readmit_on_limit_cut=True,
+                             flag_overrun=True, deny_on_revoke=True,
+                             hold_partial_residual=True, flag_reconciliation=True,
+                             honour_boundary=True, bind_definition=False),
 }
 
 
@@ -200,8 +216,11 @@ class Policy:
             if status in ("queued", "dispatched", "resource_accepted"):
                 if r["state"] != RESERVED:
                     return
-                if status == "dispatched" and r["def_digest"] != g.cur_def_digest:
-                    # authority-basis drift checked at first dispatch
+                if (status == "dispatched" and self.b.get("bind_definition", True)
+                        and r["def_digest"] != g.cur_def_digest):
+                    # authority-basis drift checked at first dispatch — only by a Guardian that
+                    # binds the underlying definition; a declaration-bound Guardian skips this and
+                    # the drift passes unflagged (ARC's declaration-time blind spot, at runtime)
                     if g.enforce_basis:
                         r["state"] = HELD               # hold for reauthorization, no attempt
                         r["release_reason"] = "basis_reauth_required"

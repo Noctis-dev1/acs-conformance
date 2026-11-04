@@ -28,7 +28,9 @@ boundary); a boundary-conformance invariant (does a Guardian that DECLARES a bou
 actually honour it — §5.1's condition that the maximum remaining exposure be bounded and
 accounted at the declared boundary, with boundary-blind as the foil); and a non-idempotent
 ledger variant (a transport resend under both ledgers, with a resource-reliant Guardian),
-which separates a guarantee the Guardian provides from one the resource provides.
+which separates a guarantee the Guardian provides from one the resource provides; and the
+ARC comparison contrast (T4-underlying against a definition-binding vs a declaration-bound
+Guardian), rendered by comparison.py and written up in COMPARISON.md.
 
   python3 matrix.py            # T1-T10 + sweep + boundary conformance + ledger variant, write results
   python3 verify.py            # re-derive every verdict from the transcript
@@ -360,6 +362,43 @@ def boundary_conformance(cli, boundary):
                 detail=f"boundary {boundary}: op-B {b_after} after the cut, op-C={opc}, committed {erp}")
 
 
+# ---------------------------------------------------------------- ARC comparison (T4-underlying)
+def cmp_t4_underlying(cli):
+    """The ARC comparison's measured contrast. The underlying tool/MCP definition changes while
+    the declared bundle, task and action stay the same (recorded, not enforced). A Guardian that
+    binds the underlying definition (reconciling) flags basis_mismatch; one that binds only the
+    declaration (declaration-bound) does not see it — the runtime-layer analogue of ARC's G1
+    expected-miss, whose subject is the declaration and not the underlying definition. The ledger
+    records the effect either way; what differs is whether the drift was noticed."""
+    c = f"CMP-t4u-{cli.policy}"
+    cli.control("control/setBasis", c, enforce=False)
+    cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
+    cli.consume(c, "op-B", 40)
+    cli.control("control/setBasis", c, definition_digest="def-v2")   # underlying definition drifts; declaration unchanged
+    cli.result(c, "op-B", "dispatched")
+    cli.erp_commit(c, "op-B", 40); cli.result(c, "op-B", "committed")
+    st = cli.state(c); erp = cli.erp_total(c); flagged = "basis_mismatch" in _flags(st)
+    return dict(policy=cli.policy, case="t4_underlying", erp=erp, flagged=flagged,
+                outcome=("catches" if flagged else "misses"),
+                detail=f"{cli.policy}: basis_mismatch flagged={flagged}, committed {erp}")
+
+
+def run_comparison(port):
+    """Measure the T4-underlying contrast against a definition-binding Guardian (reconciling,
+    should catch) and a declaration-bound one (should miss). This is the Guardian-column evidence
+    the ARC comparison renders; verify.py re-derives it from the transcript."""
+    rows = []
+    for policy in ("reconciling", "declaration-bound"):
+        srv = rg.make_server(policy, port)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        time.sleep(0.2)
+        cli = Client(f"http://127.0.0.1:{port}/acs", policy, w.new_uuid())
+        rows.append(cmp_t4_underlying(cli))
+        srv.shutdown()
+        port += 1
+    return rows
+
+
 # ---------------------------------------------------------------- non-idempotent ledger variant
 def ledger_case(cli):
     """Transport resend of op-B. reconciling signals 'already done', so a careful agent does
@@ -440,6 +479,7 @@ def main():
     }
     sweep_rows = run_sweep(8812)
     bconf_rows = run_bconf(8816)
+    comparison_rows = run_comparison(8818)
     ledger_rows = run_ledger(8820)
 
     with open(os.path.join(RES, "matrix_transcript.jsonl"), "w") as f:
@@ -447,7 +487,8 @@ def main():
             f.write(json.dumps(t) + "\n")
     with open(os.path.join(RES, "matrix_scorecard.json"), "w") as f:
         json.dump({"scorecards": scorecards, "sweep": sweep_rows,
-                   "boundary_conformance": bconf_rows, "ledger": ledger_rows}, f, indent=2)
+                   "boundary_conformance": bconf_rows, "comparison": comparison_rows,
+                   "ledger": ledger_rows}, f, indent=2)
 
     print("T1–T10 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
     order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7", "T8", "T9", "T10"]
@@ -485,6 +526,12 @@ def main():
         print(f"  {policy:<16}{cells}")
     print("  reconciling keeps the immune op's exposure accounted (op-C denied, committed 80, overrun flagged);")
     print("  boundary-blind frees it on the cut (op-C admitted, committed 100) — declares the boundary, doesn't honour it")
+
+    print("\nARC comparison (T4-underlying) — an underlying-definition change, declaration unchanged:")
+    for r in comparison_rows:
+        print(f"  {r['policy']:<18}{r['outcome']:<9} (basis_mismatch flagged={r['flagged']}, committed {r['erp']})")
+    print("  a definition-binding Guardian catches the drift; a declaration-bound one misses it,")
+    print("  the runtime analogue of ARC's declaration-time blind spot (its G1 subject excludes the definition)")
 
     print("\nLedger variant — transport resend of op-B; who provides idempotency, Guardian or resource:")
     for r in ledger_rows:

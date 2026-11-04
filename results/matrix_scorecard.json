@@ -334,6 +334,24 @@
       "detail": "boundary resource_acceptance: op-B released after the cut, op-C=allow, committed 100"
     }
   ],
+  "comparison": [
+    {
+      "policy": "reconciling",
+      "case": "t4_underlying",
+      "erp": 80,
+      "flagged": true,
+      "outcome": "catches",
+      "detail": "reconciling: basis_mismatch flagged=True, committed 80"
+    },
+    {
+      "policy": "declaration-bound",
+      "case": "t4_underlying",
+      "erp": 80,
+      "flagged": false,
+      "outcome": "misses",
+      "detail": "declaration-bound: basis_mismatch flagged=False, committed 80"
+    }
+  ],
   "ledger": [
     {
       "policy": "reconciling",

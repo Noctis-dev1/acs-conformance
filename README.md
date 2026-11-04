@@ -43,6 +43,10 @@ T8 is partial fulfilment (the ERP confirms 20 of a 40-unit request; consumption 
 
 The boundary-conformance invariant enforces the condition §5.1 settled: a Guardian may declare its own commitment boundary, but at that boundary the maximum remaining exposure must be bounded and accounted against the authority. Once an operation is past the declared boundary it can no longer be cancelled, so the suite cuts the limit, then offers a competing op sized to fit only if the immune operation's exposure were freed. A Guardian that honours its boundary keeps that exposure accounted and denies the competitor; the `boundary-blind` foil declares a boundary but frees the exposure on the cut and overruns. `reconciling` passes at every boundary (committed 80), `boundary-blind` fails at every boundary (committed 100) — a check only a correct Guardian passes, with a plausible-but-wrong one made to fail it.
 
+## Comparison with ARC (declaration-time)
+
+[ARC (Agent Role Contracts)](https://github.com/suirindo/agent-role-contracts) checks declaration consistency before execution; this suite measures runtime enforcement and the actual effect. They are complementary layers, and [COMPARISON.md](COMPARISON.md) lays the two against each other over T4 (authority-basis drift) and T8 (partial fulfilment), with an independent ledger as the third column. The Guardian and ledger columns are measured by `comparison.py` from the verified matrix results; the ARC column is filled from ARC's own fixture. The sharp case is an underlying tool-definition change under an unchanged declaration: ARC cannot see it by construction, a `declaration-bound` Guardian misses it too, and only a definition-binding Guardian catches it — the runtime analogue of the declaration-time blind spot, measured here.
+
 ## Running it against the real reference Guardian
 
 The suite is the instrument; the AGT reference Guardian is a target. See [REFERENCE_GUARDIAN.md](REFERENCE_GUARDIAN.md) for standing the reference Guardian up in an isolated container and pointing the suite at it.

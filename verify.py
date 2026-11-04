@@ -161,6 +161,24 @@ def verify_matrix():
     if bconf_rows:
         print(f"  boundary conformance ({len(bconf_rows)} cells): {'all reproduce' if bconf_ok else 'MISMATCH above'}")
 
+    # ARC comparison (T4-underlying): re-derive from the basis_mismatch flag and the ledger.
+    # A definition-binding Guardian flags the drift (catches); a declaration-bound one does not (misses).
+    cmp_ok = True
+    for r in doc.get("comparison", []):
+        policy = r["policy"]
+        evs = events.get((policy, f"CMP-t4u-{policy}"), [])
+        erp = erp_total(evs); st = final_state(evs)
+        flagged = "basis_mismatch" in [f["type"] for f in st.get("flags", [])]
+        recomputed = "catches" if flagged else "misses"
+        good = recomputed == r["outcome"] and erp == r["erp"] and flagged == r["flagged"]
+        ok = ok and good
+        cmp_ok = cmp_ok and good
+        if not good:
+            print(f"  comparison {policy}: {recomputed} (flagged={flagged}, erp {erp}) !=sc({r['outcome']}/{r['flagged']}/{r['erp']})")
+    cmp_rows = doc.get("comparison", [])
+    if cmp_rows:
+        print(f"  ARC comparison ({len(cmp_rows)} cells): {'all reproduce' if cmp_ok else 'MISMATCH above'}")
+
     for r in doc.get("ledger", []):
         evs = events.get((r["policy"], f"LEDGER-{r['policy']}-{r['ledger']}"), [])
         erp = erp_total(evs) if r["ledger"] == "idempotent" else erp_sum(evs)
