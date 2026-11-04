@@ -1,6 +1,6 @@
 """
 Reconciling mock Guardian — the delegated-authority / reconciliation model the OWASP
-GenAI Security Project's §5.1 thread converged on, made executable so the T1–T9 matrix
+GenAI Security Project's §5.1 thread converged on, made executable so the T1–T10 matrix
 can be MEASURED over the ACS wire instead of argued in prose.
 
 For a shared cumulative grant it implements:
@@ -31,7 +31,7 @@ split and holding the reservation on a lost ack (Boris Abuzov, github.com/boris-
 stop-or-reauthorize boundary (t-iida); ordered admission (Sol_ni_shko); the authority-basis
 drift scenario and digests (Paolo Costanzo). It encodes ONE reading of the still-open
 commitment-boundary question (valid-at-admission, overrun-flagged); the alternative
-(all-times invariant / effective-limit) is noted in SCENARIO_T1_T9.md, not silently chosen.
+(all-times invariant / effective-limit) is noted in SCENARIO_T1_T10.md, not silently chosen.
 
 Four variants, selected by name:
   reconciling      - the design above.
@@ -210,10 +210,17 @@ class Policy:
                     r["flag"] = "basis_mismatch"
                 r["stage"] = status                     # advance along the execution pipeline
             elif status == "committed":
+                prior = r["state"]
                 r["state"] = COMMITTED
                 r["stage"] = "committed"
                 if g.revoked:
                     g.add_flag("post_revocation_commit", f"{operation_id} committed after revoke")
+                if prior == NON_EFFECT and self.b["flag_reconciliation"]:
+                    # an effect landed AFTER the authority was reconciled as no-effect: a
+                    # reconciliation discrepancy, flagged rather than silently absorbed, whether
+                    # or not the total is within the limit. This is the general case of the
+                    # late_fill-after-key_closed path (Paolo Costanzo, reading reconciling.py).
+                    g.add_flag("reconciliation_required", f"{operation_id}: commit after a non_effect verdict")
                 if self.b["flag_overrun"] and g.committed_total() > g.limit:
                     g.add_flag("overrun", f"committed {g.committed_total()} over limit {g.limit}")
             elif status == "non_effect":

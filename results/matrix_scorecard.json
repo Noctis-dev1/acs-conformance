@@ -83,6 +83,14 @@
         "behaviour_drifted": true,
         "verdict": "EXPECTED-MISS",
         "detail": "digest def-v1 held, behaviour drifted b1->b2, op-B committed unflagged (committed 80)"
+      },
+      {
+        "case": "T10",
+        "measures": "a commit that lands after a non_effect reconciliation (the ERP record appears late) is counted and flagged reconciliation_required, not silently absorbed, even within the limit",
+        "erp": 80,
+        "flagged": true,
+        "verdict": "PASS",
+        "detail": "committed 80 within limit 100, reconciliation_required=True"
       }
     ],
     "naive": [
@@ -143,6 +151,14 @@
         "consumed": 120,
         "verdict": "FAIL",
         "detail": "op-C=allow, committed 120, reconciliation_required=False"
+      },
+      {
+        "case": "T10",
+        "measures": "a commit that lands after a non_effect reconciliation (the ERP record appears late) is counted and flagged reconciliation_required, not silently absorbed, even within the limit",
+        "erp": 80,
+        "flagged": false,
+        "verdict": "FAIL",
+        "detail": "committed 80 within limit 100, reconciliation_required=False"
       }
     ]
   },

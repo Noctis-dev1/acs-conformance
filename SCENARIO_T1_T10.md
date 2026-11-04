@@ -1,4 +1,4 @@
-# The T1–T9 reconciliation matrix, made executable
+# The T1–T10 reconciliation matrix, made executable
 
 *The OWASP GenAI Security Project's delegated-authority discussion produced a set of reconciliation test cases — the 3×40 cumulative-grant race and its lost-ack, revocation, limit-change, basis-drift, partial-fulfilment, and behaviour-drift variants. They exist as prose. This runs them, and measures each from an independent ledger.*
 
@@ -27,9 +27,9 @@ Ground truth is an independent **ERP ledger** the runner keeps, never the Guardi
 
 Each case is scored on the **one property it isolates**, not a single notion of pass/fail, because the cases isolate different things.
 
-## The ten cases
+## The eleven cases
 
-Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconciling` is the model above; `naive` is a foil that releases on a lost ack, does not re-admit on a limit cut, treats a resend as new work, frees a partial-fulfilment remainder, and does not flag.
+Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconciling` is the model above; `naive` is a foil that releases on a lost ack, does not re-admit on a limit cut, treats a resend as new work, frees a partial-fulfilment remainder, silently absorbs a commit that lands after a non-effect reconciliation, and does not flag.
 
 | Case | What it isolates | reconciling | naive |
 |---|---|---|---|
@@ -43,8 +43,11 @@ Measured by `matrix.py`, re-derived from the transcript by `verify.py`. `reconci
 | T7 | revocation releases the not-yet-dispatched; nothing new commits; a prior commit isn't retro-flagged | PASS | FAIL (dispatches past revocation) |
 | T8 | partial fulfilment (ERP confirms 20 of 40): consumption counts the confirmed effect, the remainder stays reserved until the key closes, then a fill after close is counted and the grant is flagged **reconciliation_required**; a competing op is denied while the remainder is held | PASS | FAIL (frees the remainder; a competing op is admitted and the late fill double-spends to 120, unflagged) |
 | T9 | unchanged definition digest, changed server behaviour: a digest attests the declaration, not the behaviour — an **expected-miss** by construction | E-MISS | n/a |
+| T10 | a commit that lands **after** a `non_effect` reconciliation (the ERP record shows up late): the effect is counted and the grant flagged `reconciliation_required`, even within the limit, rather than silently absorbed | PASS | FAIL (absorbs it, unflagged) |
 
 T3 passing for both is the point of T3: a correct **release** on a confirmed non-effect is as required as holding on an unresolved one. T4 is an enforcement posture rather than a foil, so it runs against the reconciling Guardian under both settings. T9 is not scored pass/fail: it is an **expected-miss**, the executable statement that attestation-by-digest is necessary but not sufficient — the digest proves the declaration is stable and says nothing about the behaviour behind it, so no honest digest-based check could catch this, and the suite records the ceiling rather than pretending to cover it. Flagging it would be a false positive, which is the fail condition.
+
+T10 is the case T3 stops short of. T3 reconciles a lost-ack operation as `non_effect` and ends there; T10 asks what happens when the ERP record then shows up late, after that verdict. The authority was accounted as having spent nothing, and now an effect has landed, so the correct handling counts it and raises `reconciliation_required` whether or not the total is within the limit. It is the general case of the late-fill-after-key-closed path in T8. This case exists because Paolo Costanzo read `reconciling.py` and noticed the suite's own claim, that a late fill is handled like a commit after a non-effect verdict, was not in fact run anywhere, and that a plain commit after a non-effect verdict was being absorbed silently. The fix made the code match the claim rather than softening the claim, and T10 now runs the path: the reconciling Guardian flags it, the naive foil absorbs it unflagged.
 
 ## Two further axes, now executable
 

@@ -1,5 +1,5 @@
 """
-T1–T9 reconciliation matrix — the OWASP §5.1 delegated-authority test cases made
+T1–T10 reconciliation matrix — the OWASP §5.1 delegated-authority test cases made
 executable and measured over the ACS wire.
 
 The §5.1 discussion produced a set of reconciliation test cases (Paolo Costanzo's T1–T7,
@@ -8,7 +8,9 @@ boundary, and Sol_ni_shko's ordered admission). They exist as prose. This runs t
 
 T8 (partial fulfilment — Paolo's open question #2) and T9 (unchanged definition digest with
 changed server behaviour — t-iida's digest-vs-behaviour point, an explicit expected-miss)
-extend the set to the two cases the §5.1 leads named next.
+extend the set to the two cases the §5.1 leads named next. T10 (a commit that lands after a
+non_effect reconciliation — Paolo's T3 variant) exercises the reconciliation-discrepancy path
+T3 stops short of, and must be flagged rather than silently absorbed.
 
 Ground truth is an independent ERP ledger the runner keeps, NOT the Guardian's own books.
 Unlike the base Layer B ledger, this ERP is idempotent on operation_id — Paolo's setup
@@ -19,7 +21,7 @@ Each case is measured on the ONE property it isolates (stated per row), not a si
 pass/fail notion — because the cases isolate different things: a ledger invariant, an
 overrun that must be flagged rather than silent, an idempotent resend, a safe release, a
 revocation. One reading of the still-open commitment-boundary question is encoded
-(valid-at-admission, overrun-flagged); the alternative is noted in SCENARIO_T1_T9.md.
+(valid-at-admission, overrun-flagged); the alternative is noted in SCENARIO_T1_T10.md.
 
 It also runs a commitment-boundary sweep (the same limit-cut case at each declared
 boundary); a boundary-conformance invariant (does a Guardian that DECLARES a boundary
@@ -28,7 +30,7 @@ accounted at the declared boundary, with boundary-blind as the foil); and a non-
 ledger variant (a transport resend under both ledgers, with a resource-reliant Guardian),
 which separates a guarantee the Guardian provides from one the resource provides.
 
-  python3 matrix.py            # T1-T9 + sweep + boundary conformance + ledger variant, write results
+  python3 matrix.py            # T1-T10 + sweep + boundary conformance + ledger variant, write results
   python3 verify.py            # re-derive every verdict from the transcript
 """
 from __future__ import annotations
@@ -269,6 +271,25 @@ def T9(cli):
                 detail=f"digest def-v1 held, behaviour drifted b1->b2, op-B committed unflagged (committed {erp})")
 
 
+def T10(cli):
+    c = "T10"  # a commit that lands AFTER the operation was reconciled as non_effect (Paolo
+    #            Costanzo's T3 variant): the ERP record shows up late, contradicting the
+    #            no-effect verdict. It must be counted AND flagged reconciliation_required, not
+    #            silently absorbed — even though the total (80) is within the limit (100). T3
+    #            stops at the verdict, so this is the case that actually runs that path.
+    cli.consume(c, "op-A", 40); cli.result(c, "op-A", "dispatched"); cli.erp_commit(c, "op-A", 40); cli.result(c, "op-A", "committed")
+    cli.consume(c, "op-B", 40)
+    cli.result(c, "op-B", "dispatched"); cli.result(c, "op-B", "unresolved")   # ack lost
+    cli.result(c, "op-B", "non_effect")            # reconciled: ERP shows no record -> released
+    cli.result(c, "op-B", "committed"); cli.erp_commit(c, "op-B", 40)   # the record shows up late
+    st = cli.state(c); erp = cli.erp_total(c); flags = _flags(st)
+    ok = erp == 80 and "reconciliation_required" in flags and "overrun" not in flags
+    return dict(case=c, measures="a commit that lands after a non_effect reconciliation (the ERP record appears late) is counted and flagged reconciliation_required, not silently absorbed, even within the limit",
+                erp=erp, flagged="reconciliation_required" in flags,
+                verdict="PASS" if ok else "FAIL",
+                detail=f"committed {erp} within limit 100, reconciliation_required={'reconciliation_required' in flags}")
+
+
 # ---------------------------------------------------------------- commitment-boundary sweep
 BOUNDARIES = ["queue_admission", "dispatch", "resource_acceptance", "transaction_commit"]
 SWEEP_STAGES = ["queued", "dispatched", "resource_accepted"]   # op-B's stage when the limit drops
@@ -358,8 +379,8 @@ def ledger_case(cli):
                 detail=f"{cli.policy} on a {ledger} ledger: committed {erp}")
 
 
-CASES_ALL = [T1, T2, T3, T4a, T4b, T5, T6, T7, T8, T9]
-CASES_NAIVE = [T1, T2, T3, T5, T6, T7, T8]         # T4/T9 are postures measured only against reconciling
+CASES_ALL = [T1, T2, T3, T4a, T4b, T5, T6, T7, T8, T9, T10]
+CASES_NAIVE = [T1, T2, T3, T5, T6, T7, T8, T10]    # T4/T9 are postures measured only against reconciling
 
 
 def run_policy(policy: str, port: int, cases):
@@ -428,8 +449,8 @@ def main():
         json.dump({"scorecards": scorecards, "sweep": sweep_rows,
                    "boundary_conformance": bconf_rows, "ledger": ledger_rows}, f, indent=2)
 
-    print("T1–T9 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
-    order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7", "T8", "T9"]
+    print("T1–T10 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
+    order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7", "T8", "T9", "T10"]
     disp = {"EXPECTED-MISS": "E-MISS"}
     def row(policy):
         by = {r["case"]: r["verdict"] for r in scorecards[policy]}

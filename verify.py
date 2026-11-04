@@ -35,7 +35,7 @@ def classify(scenario, committed, exec_count, reason):
 
 
 def verify_matrix():
-    """Re-derive every T1–T9 verdict from matrix_transcript.jsonl, independently of
+    """Re-derive every T1–T10 verdict from matrix_transcript.jsonl, independently of
     matrix_scorecard.json. Returns True/False, or None if no matrix run is present."""
     tpath = os.path.join(RES, "matrix_transcript.jsonl")
     spath = os.path.join(RES, "matrix_scorecard.json")
@@ -101,9 +101,12 @@ def verify_matrix():
             return "EXPECTED-MISS" if (st.get("definition_digest") == "def-v1"
                                        and st.get("behaviour_tag") == "b2" and erp == 80
                                        and "basis_mismatch" not in flags and bstate == "committed") else "FAIL"
+        if case == "T10":
+            return "PASS" if (erp == 80 and "reconciliation_required" in flags
+                              and "overrun" not in flags) else "FAIL"
         return "?"
 
-    print("\nVERIFY  T1–T9 reconciliation matrix")
+    print("\nVERIFY  T1–T10 reconciliation matrix")
     print("  (every verdict re-derived from matrix_transcript.jsonl, not the scorecard)")
     ok = True
     for policy, rows in scorecard.items():

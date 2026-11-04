@@ -98,6 +98,17 @@
 {"policy": "reconciling", "case": "T9", "ev": "erp_commit", "op": "op-B", "amount": 40, "idempotent": true}
 {"policy": "reconciling", "case": "T9", "ev": "result", "op": "op-B", "status": "committed", "observed": null}
 {"policy": "reconciling", "case": "T9", "ev": "control", "method": "control/state", "args": {}, "response": {"limit": 100, "revoked": false, "commitment_boundary": "dispatch", "definition_digest": "def-v1", "behaviour_tag": "b2", "consumed": 80, "outstanding": 0, "reservations": {"op-A": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-B": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}}, "flags": []}}
+{"policy": "reconciling", "case": "T10", "ev": "consume", "op": "op-A", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "reconciling", "case": "T10", "ev": "result", "op": "op-A", "status": "dispatched", "observed": null}
+{"policy": "reconciling", "case": "T10", "ev": "erp_commit", "op": "op-A", "amount": 40, "idempotent": true}
+{"policy": "reconciling", "case": "T10", "ev": "result", "op": "op-A", "status": "committed", "observed": null}
+{"policy": "reconciling", "case": "T10", "ev": "consume", "op": "op-B", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "reconciling", "case": "T10", "ev": "result", "op": "op-B", "status": "dispatched", "observed": null}
+{"policy": "reconciling", "case": "T10", "ev": "result", "op": "op-B", "status": "unresolved", "observed": null}
+{"policy": "reconciling", "case": "T10", "ev": "result", "op": "op-B", "status": "non_effect", "observed": null}
+{"policy": "reconciling", "case": "T10", "ev": "result", "op": "op-B", "status": "committed", "observed": null}
+{"policy": "reconciling", "case": "T10", "ev": "erp_commit", "op": "op-B", "amount": 40, "idempotent": true}
+{"policy": "reconciling", "case": "T10", "ev": "control", "method": "control/state", "args": {}, "response": {"limit": 100, "revoked": false, "commitment_boundary": "dispatch", "definition_digest": "def-v1", "behaviour_tag": "b1", "consumed": 80, "outstanding": 0, "reservations": {"op-A": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-B": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}}, "flags": [{"type": "reconciliation_required", "detail": "op-B: commit after a non_effect verdict"}]}}
 {"policy": "naive", "case": "T1", "ev": "consume", "op": "op-A", "amount": 40, "decision": "allow", "codes": []}
 {"policy": "naive", "case": "T1", "ev": "result", "op": "op-A", "status": "dispatched", "observed": null}
 {"policy": "naive", "case": "T1", "ev": "erp_commit", "op": "op-A", "amount": 40, "idempotent": true}
@@ -175,6 +186,17 @@
 {"policy": "naive", "case": "T8", "ev": "result", "op": "op-B", "status": "late_fill", "observed": 40}
 {"policy": "naive", "case": "T8", "ev": "erp_commit", "op": "op-B", "amount": 40, "idempotent": true}
 {"policy": "naive", "case": "T8", "ev": "control", "method": "control/state", "args": {}, "response": {"limit": 100, "revoked": false, "commitment_boundary": "dispatch", "definition_digest": "def-v1", "behaviour_tag": "b1", "consumed": 120, "outstanding": 0, "reservations": {"op-A": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-B": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": 40, "residual": 0}, "op-C": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}}, "flags": []}}
+{"policy": "naive", "case": "T10", "ev": "consume", "op": "op-A", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "naive", "case": "T10", "ev": "result", "op": "op-A", "status": "dispatched", "observed": null}
+{"policy": "naive", "case": "T10", "ev": "erp_commit", "op": "op-A", "amount": 40, "idempotent": true}
+{"policy": "naive", "case": "T10", "ev": "result", "op": "op-A", "status": "committed", "observed": null}
+{"policy": "naive", "case": "T10", "ev": "consume", "op": "op-B", "amount": 40, "decision": "allow", "codes": []}
+{"policy": "naive", "case": "T10", "ev": "result", "op": "op-B", "status": "dispatched", "observed": null}
+{"policy": "naive", "case": "T10", "ev": "result", "op": "op-B", "status": "unresolved", "observed": null}
+{"policy": "naive", "case": "T10", "ev": "result", "op": "op-B", "status": "non_effect", "observed": null}
+{"policy": "naive", "case": "T10", "ev": "result", "op": "op-B", "status": "committed", "observed": null}
+{"policy": "naive", "case": "T10", "ev": "erp_commit", "op": "op-B", "amount": 40, "idempotent": true}
+{"policy": "naive", "case": "T10", "ev": "control", "method": "control/state", "args": {}, "response": {"limit": 100, "revoked": false, "commitment_boundary": "dispatch", "definition_digest": "def-v1", "behaviour_tag": "b1", "consumed": 80, "outstanding": 0, "reservations": {"op-A": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}, "op-B": {"amount": 40, "state": "committed", "stage": "committed", "committed_amount": null, "residual": 0}}, "flags": []}}
 {"policy": "reconciling", "case": "SWEEP-queued-queue_admission", "ev": "control", "method": "control/setBoundary", "args": {"boundary": "queue_admission"}, "response": {"commitment_boundary": "queue_admission"}}
 {"policy": "reconciling", "case": "SWEEP-queued-queue_admission", "ev": "consume", "op": "op-A", "amount": 40, "decision": "allow", "codes": []}
 {"policy": "reconciling", "case": "SWEEP-queued-queue_admission", "ev": "result", "op": "op-A", "status": "dispatched", "observed": null}
