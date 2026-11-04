@@ -254,6 +254,17 @@ def main():
     if matrix_ok is not None:
         ok_all = ok_all and matrix_ok
 
+    # §10 key derivation: our HKDF must reproduce the ACS §10 published test vector. The
+    # expected key is the spec's own constant, held here independently of acs_sig.
+    import acs_sig
+    SPEC_SECRET = bytes(range(32))
+    SPEC_SESSION = "6b1f2c9e-4d7a-4e3b-8a51-9c0d2e7f1a36"
+    SPEC_KEY = "80f0dc8c611279bfc2af2d5f374c5cb685888192ce1af5c3e0673d8fa748e8a4"
+    tv_ok = acs_sig.session_key(SPEC_SECRET, SPEC_SESSION).hex() == SPEC_KEY
+    ok_all = ok_all and tv_ok
+    print("\n§10 key derivation vs the ACS test vector:")
+    print(f"  HKDF-SHA256(secret 00..1f, info=session_id) -> {'OK (reproduces the published key)' if tv_ok else 'MISMATCH'}")
+
     print("\nVERIFIED" if ok_all else "\nNOT VERIFIED — transcript does not reproduce the scorecard")
     return 0 if ok_all else 2
 

@@ -26,14 +26,24 @@
           "ok": true
         },
         {
-          "check": "\u00a710 signature verification",
-          "ok": null,
-          "detail": "PENDING: ServerHello advertises no signature_algorithms_supported \u2014 this Guardian does not require \u00a710 signatures; a signed-envelope test still needs JCS/RFC-8785 pinned"
+          "check": "\u00a710 valid HMAC-SHA256 signature is accepted",
+          "ok": true,
+          "detail": ""
         },
         {
-          "check": "\u00a710.3 replay/timestamp rejection",
-          "ok": null,
-          "detail": "PENDING: ServerHello advertises skew_window_ms=30000; a timestamp outside that window and a replayed nonce should both be rejected \u2014 test to be built against the advertised window"
+          "check": "\u00a710 tampered request is rejected (SIGNATURE_INVALID -32004)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "\u00a710.3 out-of-window timestamp is rejected (TIMESTAMP_OUT_OF_WINDOW -32006)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "\u00a710.3 replayed request_id is rejected (REPLAY_DETECTED -32005)",
+          "ok": true,
+          "detail": ""
         }
       ],
       "committed": {
@@ -71,14 +81,24 @@
           "ok": true
         },
         {
-          "check": "\u00a710 signature verification",
-          "ok": null,
-          "detail": "PENDING: ServerHello advertises no signature_algorithms_supported \u2014 this Guardian does not require \u00a710 signatures; a signed-envelope test still needs JCS/RFC-8785 pinned"
+          "check": "\u00a710 valid HMAC-SHA256 signature is accepted",
+          "ok": true,
+          "detail": ""
         },
         {
-          "check": "\u00a710.3 replay/timestamp rejection",
-          "ok": null,
-          "detail": "PENDING: ServerHello advertises skew_window_ms=30000; a timestamp outside that window and a replayed nonce should both be rejected \u2014 test to be built against the advertised window"
+          "check": "\u00a710 tampered request is rejected (SIGNATURE_INVALID -32004)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "\u00a710.3 out-of-window timestamp is rejected (TIMESTAMP_OUT_OF_WINDOW -32006)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "\u00a710.3 replayed request_id is rejected (REPLAY_DETECTED -32005)",
+          "ok": true,
+          "detail": ""
         }
       ],
       "committed": {
@@ -116,14 +136,24 @@
           "ok": true
         },
         {
-          "check": "\u00a710 signature verification",
-          "ok": null,
-          "detail": "PENDING: ServerHello advertises no signature_algorithms_supported \u2014 this Guardian does not require \u00a710 signatures; a signed-envelope test still needs JCS/RFC-8785 pinned"
+          "check": "\u00a710 valid HMAC-SHA256 signature is accepted",
+          "ok": true,
+          "detail": ""
         },
         {
-          "check": "\u00a710.3 replay/timestamp rejection",
-          "ok": null,
-          "detail": "PENDING: ServerHello advertises skew_window_ms=30000; a timestamp outside that window and a replayed nonce should both be rejected \u2014 test to be built against the advertised window"
+          "check": "\u00a710 tampered request is rejected (SIGNATURE_INVALID -32004)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "\u00a710.3 out-of-window timestamp is rejected (TIMESTAMP_OUT_OF_WINDOW -32006)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "\u00a710.3 replayed request_id is rejected (REPLAY_DETECTED -32005)",
+          "ok": true,
+          "detail": ""
         }
       ],
       "committed": {

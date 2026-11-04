@@ -9,9 +9,11 @@ launched mock (--policy):
     negotiated_version, methods_evaluated, selected_transport, timeout_config); a
     toolCallRequest returns an AcsResult that validates against response-envelope.json;
     deny carries reasoning; an undeclared method is refused; system/ping answers (§13
-    SHOULD). (§10 signing and §10.3 replay are reported as PENDING rather than asserted,
-    with the ServerHello's advertised signature_algorithms_supported and skew_window_ms
-    noted — see acs_wire.py.)
+    SHOULD); and §10 message authentication is exercised — a valid HMAC-SHA256 signature is
+    accepted, while a tampered request, an out-of-window timestamp, and a replayed request_id
+    are rejected (SIGNATURE_INVALID / TIMESTAMP_OUT_OF_WINDOW / REPLAY_DETECTED). The §10
+    checks run when the Guardian advertises the HMAC-SHA256 baseline and the suite holds the
+    matching key material (the bundled mocks do); see acs_sig.py.
 
   Layer B — INVARIANT conformance: a protocol-perfect Guardian can still fail a security
     property. We drive adversarial steps/toolCallRequest sequences for a shared 100-unit
@@ -36,8 +38,10 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 
 import acs_wire as w
+import acs_sig
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, "results")
@@ -88,7 +92,69 @@ def send_result(client: w.GuardianClient, session, operation_id, status):
 SERVERHELLO_REQUIRED = ("negotiated_version", "methods_evaluated", "selected_transport", "timeout_config")
 
 
-def protocol_checks(client: w.GuardianClient, policy: str) -> list[dict]:
+def sig10_checks(client, session, sig_algs, skew, secret, key_id) -> list[dict]:
+    """§10 message authentication and §10.3 replay, measured against the Guardian. Run only
+    when the Guardian advertises the HMAC-SHA256 baseline and the suite holds the matching
+    key material; otherwise reported as an observation, because an HMAC Guardian cannot be
+    signature-tested without its shared secret. Each case isolates one failure so it draws
+    one error code (SIGNATURE_INVALID -32004, TIMESTAMP_OUT_OF_WINDOW -32006, REPLAY_DETECTED
+    -32005). The signing input is the RFC 8785 (JCS) canonicalization of the envelope minus
+    the signature field; the key is HKDF-SHA256(secret, info=session_id) — see acs_sig.py,
+    whose HKDF reproduces the ACS §10 test vector."""
+    skew = skew if isinstance(skew, int) else 300000
+
+    def consume_env(**kw):
+        return w.tool_call_request("budget.consume",
+                                   {"grant_id": GRANT, "operation_id": w.new_uuid(), "amount": 10},
+                                   session_id=session, **kw)
+
+    if "HMAC-SHA256" not in (sig_algs or []):
+        return [{"check": "§10 signature verification", "ok": None,
+                 "detail": f"PENDING: ServerHello signature_algorithms_supported={sig_algs} has no HMAC-SHA256 "
+                           "baseline, so §10 signing is not exercised"},
+                {"check": "§10.3 replay/timestamp rejection", "ok": None,
+                 "detail": f"PENDING: no HMAC-SHA256 baseline advertised (skew_window_ms={skew})"}]
+    if secret is None:
+        return [{"check": "§10 signature verification", "ok": None,
+                 "detail": "PENDING: Guardian advertises HMAC-SHA256 but the suite has no shared secret for it; "
+                           "provide the deployment's key material to run the §10 signing checks"},
+                {"check": "§10.3 replay/timestamp rejection", "ok": None,
+                 "detail": "PENDING: needs the deployment's key material to produce a valid signature"}]
+
+    checks = []
+    # (a) a validly-signed request is accepted (not rejected with a §10 error)
+    r = client.call(acs_sig.sign_envelope(consume_env(), secret, key_id))
+    accepted = isinstance(r.get("result"), dict) and "decision" in r["result"]
+    checks.append({"check": "§10 valid HMAC-SHA256 signature is accepted", "ok": accepted,
+                   "detail": "" if accepted else f"a validly-signed request was not accepted: {r.get('error')}"})
+
+    # (b) a request tampered after signing is rejected SIGNATURE_INVALID
+    tampered = acs_sig.sign_envelope(consume_env(), secret, key_id)
+    tampered["params"]["payload"]["arguments"]["amount"]["value"] = 999   # mutate after signing
+    code_t = (client.call(tampered).get("error") or {}).get("code")
+    checks.append({"check": "§10 tampered request is rejected (SIGNATURE_INVALID -32004)",
+                   "ok": code_t == acs_sig.SIGNATURE_INVALID,
+                   "detail": "" if code_t == acs_sig.SIGNATURE_INVALID else f"got {code_t!r}, expected -32004"})
+
+    # (c) a stale timestamp is rejected TIMESTAMP_OUT_OF_WINDOW
+    stale_ts = (datetime.now(timezone.utc) - timedelta(milliseconds=skew + 600000)).isoformat()
+    code_s = (client.call(acs_sig.sign_envelope(consume_env(timestamp=stale_ts), secret, key_id)).get("error") or {}).get("code")
+    checks.append({"check": "§10.3 out-of-window timestamp is rejected (TIMESTAMP_OUT_OF_WINDOW -32006)",
+                   "ok": code_s == acs_sig.TIMESTAMP_OUT_OF_WINDOW,
+                   "detail": "" if code_s == acs_sig.TIMESTAMP_OUT_OF_WINDOW else f"got {code_s!r}, expected -32006"})
+
+    # (d) a replayed request (identical, same request_id) is rejected REPLAY_DETECTED on the second send
+    replay = acs_sig.sign_envelope(consume_env(), secret, key_id)
+    client.call(replay)                                      # first: accepted and remembered
+    code_r = (client.call(replay).get("error") or {}).get("code")   # second: identical -> replay
+    checks.append({"check": "§10.3 replayed request_id is rejected (REPLAY_DETECTED -32005)",
+                   "ok": code_r == acs_sig.REPLAY_DETECTED,
+                   "detail": "" if code_r == acs_sig.REPLAY_DETECTED else f"got {code_r!r}, expected -32005"})
+    return checks
+
+
+def protocol_checks(client: w.GuardianClient, policy: str,
+                    sig_secret: bytes | None = None, sig_key_id: str | None = None) -> list[dict]:
     out = []
     session = w.new_uuid()
 
@@ -132,17 +198,7 @@ def protocol_checks(client: w.GuardianClient, policy: str) -> list[dict]:
     out.append({"check": "undeclared method is refused (JSON-RPC error)",
                 "ok": "error" in bogus})
 
-    out.append({"check": "§10 signature verification", "ok": None,
-                "detail": (f"PENDING: ServerHello advertises signature_algorithms_supported={sig_algs}; the next build "
-                           "step sends a JCS/RFC-8785-canonicalized signed envelope and asserts a bad signature is rejected"
-                           if sig_algs else
-                           "PENDING: ServerHello advertises no signature_algorithms_supported — this Guardian does not "
-                           "require §10 signatures; a signed-envelope test still needs JCS/RFC-8785 pinned")})
-    out.append({"check": "§10.3 replay/timestamp rejection", "ok": None,
-                "detail": (f"PENDING: ServerHello advertises skew_window_ms={skew}; a timestamp outside that window and a "
-                           "replayed nonce should both be rejected — test to be built against the advertised window"
-                           if skew is not None else
-                           "PENDING: ServerHello advertises no skew_window_ms — the acceptance window is unspecified")})
+    out.extend(sig10_checks(client, session, sig_algs, skew, sig_secret, sig_key_id))
     return out
 
 
@@ -208,8 +264,9 @@ def scenario_verdict(policy, scenario, committed) -> str:
     return "HOLD" if committed <= 40 else "DOUBLE-SPEND"
 
 
-def run_against(client: w.GuardianClient, policy: str) -> dict:
-    protocol = protocol_checks(client, policy)
+def run_against(client: w.GuardianClient, policy: str,
+                sig_secret: bytes | None = None, sig_key_id: str | None = None) -> dict:
+    protocol = protocol_checks(client, policy, sig_secret, sig_key_id)
     scenario_race(client, policy)
     scenario_continue(client, policy)
     scenario_retry(client, policy)
@@ -230,7 +287,7 @@ def selftest() -> list[dict]:
         th.start()
         time.sleep(0.2)
         client = w.GuardianClient(f"http://127.0.0.1:{port}/acs")
-        scorecards.append(run_against(client, policy))
+        scorecards.append(run_against(client, policy, acs_sig.TEST_SECRET, acs_sig.TEST_KEY_ID))
         srv.shutdown()
         port += 1
     return scorecards
@@ -255,7 +312,8 @@ def main():
         srv = g.make_server(args.policy, 8829, LIMIT)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         time.sleep(0.2)
-        scorecards = [run_against(w.GuardianClient("http://127.0.0.1:8829/acs"), args.policy)]
+        scorecards = [run_against(w.GuardianClient("http://127.0.0.1:8829/acs"), args.policy,
+                                  acs_sig.TEST_SECRET, acs_sig.TEST_KEY_ID)]
         srv.shutdown()
         label = f"mock:{args.policy}"
 
@@ -268,7 +326,7 @@ def main():
     # manifest for the verifier
     import hashlib
     man = {"limit": LIMIT, "src_sha256": {}}
-    for src in ("acs_wire.py", "run_conformance.py", os.path.join("mock_guardians", "guardian.py"),
+    for src in ("acs_wire.py", "acs_sig.py", "run_conformance.py", os.path.join("mock_guardians", "guardian.py"),
                 os.path.join("mock_guardians", "reconciling.py"), "matrix.py", "comparison.py", "verify.py"):
         p = os.path.join(HERE, src)
         if os.path.exists(p):

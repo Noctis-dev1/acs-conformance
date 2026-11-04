@@ -2,7 +2,7 @@
 
 An independent, language-independent conformance suite for OWASP **Agent Control Standard (ACS)** v0.1.0 Guardians. It points at any Guardian over its HTTP endpoint and asks two questions:
 
-1. **Protocol conformance (Layer A)** — does the Guardian speak ACS correctly? Handshake/ServerHello, schema-valid decision envelopes, refusal of undeclared methods, `system/ping`, and (pending the §10 canonicalization) signature and replay rejection.
+1. **Protocol conformance (Layer A)** — does the Guardian speak ACS correctly? Handshake/ServerHello, schema-valid decision envelopes, refusal of undeclared methods, `system/ping`, and §10 message authentication (a valid HMAC-SHA256 signature accepted; tampered, stale-timestamp, and replayed requests rejected).
 2. **Invariant conformance (Layer B)** — does a *protocol-perfect* Guardian actually preserve a security invariant? ACS-Core states it "does not assert that policies are strict." This layer drives the delegated-authority, cumulative-limit scenarios (OWASP Agentic ASI03) — a shared grant consumed under concurrency, lost acknowledgements, and retries — and measures, from an independent world ledger, whether the committed total ever exceeds the grant.
 
 Built in response to [issue #311](https://github.com/GenAI-Security-Project/agent-control-standard/issues/311) (a language-independent Guardian contract test suite) and issue #19 (no independent conformance steward in v0.1.0).
@@ -57,7 +57,7 @@ The suite is the instrument; the AGT reference Guardian is a target. See [REFERE
 
 ## Scope, stated plainly
 
-The world ledger is modelled as a faithful append-only record with **no idempotency backstop**, so preventing a double-spend is forced onto the control plane — this isolates the Guardian, which is the point of a conformance test (a production ERP with an idempotency key would also stop a double-spend). Layer A's §10 HMAC signing over the JCS/RFC-8785 canonicalization and §10.3 replay window are reported as PENDING, not asserted, until confirmed against the specification. The suite measures the wire; it does not inspect a Guardian's internals.
+The world ledger is modelled as a faithful append-only record with **no idempotency backstop**, so preventing a double-spend is forced onto the control plane — this isolates the Guardian, which is the point of a conformance test (a production ERP with an idempotency key would also stop a double-spend). Layer A's §10 message authentication is implemented in [acs_sig.py](acs_sig.py) and exercised against the mock: HMAC-SHA256 over the RFC 8785 (JCS) canonicalization of the envelope with the signature field removed, keyed by HKDF-SHA256(secret, info=session_id), whose derivation reproduces the ACS §10 published test vector (re-checked by `verify.py`). §10.3 replay is enforced via the timestamp skew window and duplicate request_id/nonce. Testing a real external Guardian's §10 needs that deployment's shared key material; without it the check reports so rather than failing. The suite measures the wire; it does not inspect a Guardian's internals.
 
 ## Credits
 

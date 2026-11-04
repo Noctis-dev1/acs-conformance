@@ -12,13 +12,12 @@ Grounded against the published v0.1.0 schemas:
   specification/v0.1.0/response-envelope.json
   docs/spec/.../conformance.md  (ACS-Core)
 
-What is deliberately NOT done here yet, and is marked pending rather than faked:
-  * §10 signature construction/verification (HMAC-SHA256 over the JCS canonicalization
-    with an HKDF-derived per-session key). The envelope carries the field; the exact
-    canonicalization is confirmed against §10 before the signing tests are switched on.
-  * §10.3 replay/timestamp acceptance window (value not in the published excerpt).
-These are real ACS-Core requirements; they are stubbed in the contract layer with the
-reason stated, not silently passed.
+§10 message authentication is implemented in acs_sig.py and exercised by Layer A: HMAC-SHA256
+over the RFC 8785 (JCS) canonicalization of the envelope with the signature field removed,
+keyed by HKDF-SHA256(secret, info=session_id), whose derivation reproduces the ACS §10
+published test vector. §10.3 replay (timestamp skew window, duplicate request_id/nonce) is
+enforced by the bundled mock and checked here. This module builds and validates the envelope
+structure; acs_sig.py holds the signing and verification.
 """
 from __future__ import annotations
 
