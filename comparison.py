@@ -6,7 +6,7 @@ results/matrix_scorecard.json, which verify.py re-derives from the wire transcri
 comparison introduces no second source of truth and nothing it shows rests on its own say-so.
 
 The ARC column is taken from ARC's merged, maintainer-run fixture (pinned in COMPARISON.md).
-It is not measured by this suite, and it has not yet been independently reproduced.
+It is not measured by this suite. Noctis has reproduced it against the published tarball; no party outside both projects has yet.
 
   python3 matrix.py         # produce the verified results first
   python3 comparison.py     # render the three-layer table from them
@@ -37,7 +37,7 @@ def main():
     rc, db = cmp.get("reconciling", {}), cmp.get("declaration-bound", {})
 
     print("ARC x Guardian x ledger: three independent layers over one scenario")
-    print("  Guardian and ledger columns from the verified matrix results; ARC column from ARC's maintainer-run fixture (not yet independently reproduced).\n")
+    print("  Guardian and ledger columns from the verified matrix results; ARC column from ARC's maintainer-run fixture (reproduced by Noctis; not yet by a third party).\n")
 
     print("T4-declared (change is in the declared bundle, task or action):")
     print(f"  ARC (declaration):   {ARC['t4_declared']}")
