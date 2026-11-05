@@ -36,7 +36,7 @@ What each column isolates:
 - **lost-ack continue** separates a Guardian that *reconciles* from one that *auto-releases*. `reserve-only` frees the pending reservation when the ack is lost, so the grant believes nothing is spent while the world kept 40, and the next operation walks the total to 110. `holding` keeps the reservation pending and denies the 70.
 - **lost-ack retry** separates a Guardian that *binds consumption to a stable operation identity* from one that does not. `holding` recognises the retried `operation_id` and refuses the duplicate; the others treat it as new work and commit a second effect for one logical operation.
 
-Reservation alone (the `reserve-only` row) is the trap: it passes the concurrency test everyone writes and fails both in-doubt tests almost nobody writes. Only reservation **plus** stable-operation-id binding **plus** holding the reservation on a lost ack keeps the limit under all three. That is exactly the design the delegated-authority discussion converged on, now executable and measured over the ACS wire.
+Reservation alone (the `reserve-only` row) is the trap: it passes the concurrency test and fails both in-doubt tests. Only reservation **plus** stable-operation-id binding **plus** holding the reservation on a lost ack keeps the limit under all three. That matches the design the delegated-authority discussion converged on, now executable and measured over the ACS wire.
 
 ## Mapping
 

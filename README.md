@@ -28,7 +28,7 @@ All three mocks are protocol-conformant. Only one holds the invariant.
 | reserve-only | HOLD (80) | LEAK (110) | DOUBLE-SPEND (80) |
 | holding | HOLD (80) | HOLD (40) | HOLD (40) |
 
-The point of Layer B in one line: a destination that passes the test everyone writes (concurrency) can still fail the two almost nobody writes: a reservation auto-released on a lost acknowledgement (leak) and a retry that is not bound to a stable operation identity (double-spend). Only `holding`; atomic reservation + stable-operation-id binding + holding the pending reservation on a lost ack; keeps the limit under all three. Full write-up in [SCENARIO.md](SCENARIO.md).
+The point of Layer B in one line: a destination that passes the obvious concurrency test can still fail two less obvious ones, a reservation auto-released on a lost acknowledgement (leak) and a retry that is not bound to a stable operation identity (double-spend). Only `holding` (atomic reservation, stable-operation-id binding, and holding the pending reservation on a lost ack) keeps the limit under all three. Full write-up in [SCENARIO.md](SCENARIO.md).
 
 ## The T1–T10 reconciliation matrix
 
