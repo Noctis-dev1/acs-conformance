@@ -15,7 +15,7 @@ The reconciling Guardian encodes the design the thread converged on:
 - **ordered admission** of concurrent requests (Sol_ni_shko),
 - the **authority-basis drift** scenario: a tool redefined under an unchanged name, and content-addressed **digests** (Paolo Costanzo).
 
-That model is theirs. The encoding here is mine, and it may differ from what any of them intended; the point of making it executable is that a difference now shows up as a failing assertion instead of a disagreement in prose. Corrections to the encoding are welcome.
+That model is theirs. The encoding here is Noctis's own, and it may differ from what any of them intended; the point of making it executable is that a difference now shows up as a failing assertion instead of a disagreement in prose. Corrections to the encoding are welcome.
 
 ## How it is measured
 
@@ -94,7 +94,7 @@ The thread has not settled these, and neither does this suite. It encodes one re
 1. **Which boundary is normative: settled by §5.1, and now checked.** §5.1 (Approved) does not mandate a universal boundary such as dispatch; it requires a declared, action-class-specific one that is explicitly defined, stable for that class, grounded in the real cancellation or commitment semantics of the execution path, and that bounds the maximum remaining exposure by that point. That last condition is now enforced by the boundary-conformance invariant above, with `boundary-blind` as the foil. What remains genuinely open is upstream of the suite: which boundary §5.1 integration should mandate per action class. The suite measures the consequence of each and checks that whatever a Guardian declares is honoured; it does not pick one.
 2. **Is a committed overrun (T2) a violation or valid-plus-reconcile?** Paolo's open question #1. This encodes reading **(a)**: valid at admission, the overrun flagged on the grant, not reading (b), where the effective limit simply cannot drop below consumed-plus-in-flight. The gap measured is identical (20 in T2); only its label differs.
 3. **Partial fulfilment** (the ERP confirms 20 of 40), Paolo's open question #2, is **encoded as T8**, following the rule Paolo specified: consumption counts the confirmed effect (60), the remaining 20 stays reserved until the ERP confirms no more fills or the key's deadline passes, only then released; and a fill arriving after that is handled like a commit after a non_effect verdict, counted with the grant flagged `reconciliation_required`. The competing-op denial while the remainder is held shows the reservation is real, not cosmetic. What stays open is whether a late fill should be allowed to exceed the grant at all, or only logged for reconciliation as encoded here.
-4. **Per-attempt records.** The operation/attempt split is encoded as a stable `operation_id` with idempotent resend, which covers the transport-resend case (T5). A distinct `attempt_id` carrying its own matched/mismatched authorization record, as in Paolo's scenario, is not yet modeled separately; a basis mismatch is flagged on the operation. Per-attempt records are the other extension I'd add.
+4. **Per-attempt records.** The operation/attempt split is encoded as a stable `operation_id` with idempotent resend, which covers the transport-resend case (T5). A distinct `attempt_id` carrying its own matched/mismatched authorization record, as in Paolo's scenario, is not yet modeled separately; a basis mismatch is flagged on the operation. Per-attempt records are the other extension worth adding.
 
 ## Reproduce
 

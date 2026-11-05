@@ -68,7 +68,7 @@ The reconciliation model (Layer B and the T1–T10 matrix) comes from the OWASP 
 - Sol_ni_shko: ordered admission.
 - Paolo Costanzo: authority-basis drift and the T1–T7 scenario.
 
-The encoding here is mine and may differ from their intent; corrections welcome.
+The encoding is Noctis's own and may differ from their intent; corrections welcome.
 
 ## License
 
