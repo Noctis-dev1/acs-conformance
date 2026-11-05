@@ -1,10 +1,10 @@
 # Three layers, one scenario
 
-### Comparing ARC declaration checks, Guardian commitment-boundary enforcement, and an independent ledger over the OWASP AIMM Pillar 2 §5.1 delegated-authority cases
+### A three-layer comparison, ARC declaration checks against Guardian commitment-boundary enforcement and an independent ledger, run over the delegated-authority cases from OWASP AIMM Pillar 2 §5.1
 
 This suite tests OWASP Agent Control Standard (ACS) Guardians; the delegated-authority cases it drives against them come from OWASP AIMM Pillar 2 §5.1, a separate document. The two are kept distinct throughout.
 
-A reproducible comparison between [ARC (Agent Role Contracts)](https://github.com/suirindo/agent-role-contracts) and this conformance suite, prepared with ARC's author for the OWASP GenAI Security Project §5.1 workstream. The point is to locate the seam between the layers, not to rank them. The three answer different questions about the same scenario, and none validates another.
+A reproducible comparison between [ARC (Agent Role Contracts)](https://github.com/suirindo/agent-role-contracts) and this conformance suite, ARC is an independent open-source project, not an OWASP artifact. The §5.1 cases this comparison runs come from OWASP's AIMM Pillar 2 workstream. The point is to locate the seam between the layers, not to rank them. The three answer different questions about the same scenario, and none validates another.
 
 ## The three layers
 
@@ -14,7 +14,7 @@ A reproducible comparison between [ARC (Agent Role Contracts)](https://github.co
 
 ## Method and honesty
 
-The Guardian and ledger columns below are measured by this suite and re-derived from the recorded wire transcript by `verify.py`; each cell names the case it comes from (T4a, T4b, T8, and the `reconciling` versus `declaration-bound` comparison run for the underlying-change row). `comparison.py` only renders these verified results; it measures nothing of its own. The ARC column is filled from ARC's own fixture, prepared by its author. Where an ARC result appears here it is marked *pending ARC fixture*: it is our expectation, drawn from ARC's documented G1 construction and stated so the fixture has a target to confirm or correct, not a result we measured. The G1 reading in the underlying-change row comes from ARC's ARCHITECTURE.md and is pending confirmation against intent.
+The Guardian and ledger columns below are measured by this suite and re-derived from the recorded wire transcript by `verify.py`; each cell names the case it comes from (T4a, T4b, T8, and the `reconciling` versus `declaration-bound` comparison run for the underlying-change row). `comparison.py` only renders these verified results; it measures nothing of its own. The ARC column is taken from ARC's maintainer-run fixture, merged upstream at [873b410](https://github.com/suirindo/agent-role-contracts/blob/873b4104a95e443ba22367cf8378deb7dcbe6cfd/experiments/external-evaluation/acs-conformance/README.md). Its provenance is recorded as `MAINTAINER_RUN`: synthetic inputs, run against the published ARC 1.0.1 package. We have not run that fixture ourselves, so an independent reproduction by a party outside both projects is still outstanding. The fixture's observations confirm the G1 reading we drew from ARC's ARCHITECTURE.md: the underlying definition is not in the subject, so ARC does not see that change.
 
 ## T4: authority-basis drift
 
@@ -22,8 +22,8 @@ T4 splits on exactly what changes, and the split is entirely an ARC-side distinc
 
 | Sub-case | ARC (declaration time) | Guardian (commitment boundary) | Independent ledger |
 |---|---|---|---|
-| **Declared change**, in the bundle, task or action | REJECT, G1 subject mismatch *(pending ARC fixture)* | drift caught at dispatch: hold for reauthorization when enforced (T4a, held, never commits), commit and flag `basis_mismatch` when recorded (T4b) *(measured)* | effect bounded: 40 held, 80 committed-and-flagged *(measured)* |
-| **Underlying change**, the tool or MCP definition changes while the declaration is unchanged | PASS, G1 subject unchanged, an expected-miss by construction *(pending ARC fixture)* | a definition-binding Guardian catches it (reconciling flags `basis_mismatch`); a Guardian that binds only the declaration misses it, unflagged *(measured)* | 80 committed either way; the difference is whether the drift was noticed *(measured)* |
+| **Declared change**, in the bundle, task or action | REJECT, `G1_SUBJECT_MISMATCH` for all three declaration changes *(ARC fixture, maintainer-run)* | drift caught at dispatch: hold for reauthorization when enforced (T4a, held, never commits), commit and flag `basis_mismatch` when recorded (T4b) *(measured)* | effect bounded: 40 held, 80 committed-and-flagged *(measured)* |
+| **Underlying change**, the tool or MCP definition changes while the declaration is unchanged | G1 PASS, `EXPECTED_MISS`, with `execution_authorized: false` *(ARC fixture, maintainer-run)* | a definition-binding Guardian catches it (reconciling flags `basis_mismatch`); a Guardian that binds only the declaration misses it, unflagged *(measured)* | 80 committed either way; the difference is whether the drift was noticed *(measured)* |
 
 The underlying-change row is the one that draws the boundary, and the suite measures it on its own side rather than asserting it. By its documented G1 construction ARC does not see this change, because its subject does not include the underlying definition. That is the declaration-time analogue of this suite's own T9: a digest cannot detect a change in something it was never computed over. To make the point measured, the comparison runs the same scenario against two Guardians: `reconciling`, which binds the underlying definition and flags the drift, and `declaration-bound`, which binds only the declaration and lets the drift pass unflagged, exactly the blind spot ARC has, projected into the runtime layer. The ledger records the same effect (80) in both; the difference is whether the Guardian noticed. So for an underlying-definition change, ARC misses it by construction, a declaration-bound runtime check misses it too, and only a definition-binding Guardian catches it. In the declared-change row the ARC and Guardian layers overlap, each confirming the same change from a different vantage, and the ledger confirms the effect in both.
 
@@ -31,9 +31,9 @@ The underlying-change row is the one that draws the boundary, and the suite meas
 
 | Scenario | ARC (declaration time) | Guardian (commitment boundary) | Independent ledger |
 |---|---|---|---|
-| Partial fulfilment (20 of 40 confirmed), then a fill after the key closes | N/A, outside ARC's declaration and lifecycle scope *(pending ARC fixture)* | counts the confirmed 20, holds the remainder until the key closes, denies a competing op while it is held, flags `reconciliation_required` on the late fill *(measured, T8)* | 80, flagged, no double-spend; a naive Guardian double-spends to 120 *(measured)* |
+| Partial fulfilment (20 of 40 confirmed), then a fill after the key closes | G3 validates lifecycle declarations; reconciliation of actual partial fills and late-arriving effects is outside ARC's scope *(ARC fixture, maintainer-run)* | counts the confirmed 20, holds the remainder until the key closes, denies a competing op while it is held, flags `reconciliation_required` on the late fill *(measured, T8)* | 80, flagged, no double-spend; a naive Guardian double-spends to 120 *(measured)* |
 
-Partial fulfilment and late-arriving effects are runtime and effect phenomena. ARC's G3 validates lifecycle declarations but cannot establish the truth of runtime events or reconcile actual resource effects, so its column here is correctly N/A. The substantive work is the Guardian's and the ledger's.
+Partial fulfilment and late-arriving effects are runtime and effect phenomena. ARC's G3 validates lifecycle declarations; reconciliation of actual partial fills and late-arriving effects is outside ARC's scope, which is why its runtime-reconciliation cell does not apply. The substantive work is the Guardian's and the ledger's.
 
 ## What the comparison shows
 
@@ -49,6 +49,6 @@ python3 verify.py       # re-derive every Guardian and ledger verdict from the w
 
 ## Credits and cross-reference
 
-The reconciliation model and these cases come from the OWASP GenAI Security Project's AIMM Pillar 2 §5.1 delegated-authority discussion (Boris Abuzov, t-iida, Sol_ni_shko, Paolo Costanzo). ARC is at [github.com/suirindo/agent-role-contracts](https://github.com/suirindo/agent-role-contracts). The ARC fixture and the declaration-check column are prepared by ARC's author; the Guardian and ledger columns are this suite's. The comparison is intended to live in both repositories, each linking the other.
+The reconciliation model and these cases come from the OWASP GenAI Security Project's AIMM Pillar 2 §5.1 delegated-authority discussion (Boris Abuzov, t-iida, Sol_ni_shko, Paolo Costanzo). ARC is at [github.com/suirindo/agent-role-contracts](https://github.com/suirindo/agent-role-contracts). The ARC fixture and the declaration-check column are ARC's maintainer's, merged upstream; the Guardian and ledger columns are this suite's. The comparison is intended to live in both repositories, each linking the other.
 
-**Status.** Guardian and ledger columns measured and verified as of this commit. ARC column pending the ARC fixture and confirmation of the G1 subject reading.
+**Status.** Guardian and ledger columns measured and verified in this suite. ARC column taken from ARC's merged, maintainer-run fixture (pinned above). Independent reproduction by a party outside both projects is not yet done.

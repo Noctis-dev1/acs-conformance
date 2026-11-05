@@ -5,9 +5,8 @@ This is a presenter, not a measurer. Every Guardian and ledger cell it prints co
 results/matrix_scorecard.json, which verify.py re-derives from the wire transcript, so the
 comparison introduces no second source of truth and nothing it shows rests on its own say-so.
 
-The ARC column is filled from ARC's fixture (github.com/suirindo/agent-role-contracts). The
-cells here marked "pending ARC fixture" are expectations drawn from ARC's documented G1
-construction, to confirm or correct, not results measured by this suite.
+The ARC column is taken from ARC's merged, maintainer-run fixture (pinned in COMPARISON.md).
+It is not measured by this suite, and it has not yet been independently reproduced.
 
   python3 matrix.py         # produce the verified results first
   python3 comparison.py     # render the three-layer table from them
@@ -21,9 +20,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCORE = os.path.join(HERE, "results", "matrix_scorecard.json")
 
 ARC = {
-    "t4_declared":   "REJECT, G1 subject mismatch (pending ARC fixture)",
-    "t4_underlying": "PASS, G1 subject unchanged, expected-miss by construction (pending ARC fixture)",
-    "t8":            "N/A, outside ARC's declaration and lifecycle scope (pending ARC fixture)",
+    "t4_declared":   "REJECT, G1_SUBJECT_MISMATCH for all three declaration changes (ARC fixture, maintainer-run)",
+    "t4_underlying": "G1 PASS, EXPECTED_MISS, execution_authorized: false (ARC fixture, maintainer-run)",
+    "t8":            "G3 validates lifecycle declarations; reconciliation of actual partial fills and late-arriving effects is outside ARC's scope (ARC fixture, maintainer-run)",
 }
 
 
@@ -38,7 +37,7 @@ def main():
     rc, db = cmp.get("reconciling", {}), cmp.get("declaration-bound", {})
 
     print("ARC x Guardian x ledger: three independent layers over one scenario")
-    print("  Guardian and ledger columns from the verified matrix results; ARC column pending the ARC fixture.\n")
+    print("  Guardian and ledger columns from the verified matrix results; ARC column from ARC's maintainer-run fixture (not yet independently reproduced).\n")
 
     print("T4-declared (change is in the declared bundle, task or action):")
     print(f"  ARC (declaration):   {ARC['t4_declared']}")
@@ -60,7 +59,7 @@ def main():
     print(f"  independent ledger:  {t8.get('erp')}, flagged, no double-spend (naive double-spends to 120)\n")
 
     print("Every Guardian and ledger cell above is a verdict in matrix_scorecard.json that verify.py")
-    print("re-derives from the wire transcript. The ARC cells are expectations to confirm against the fixture.")
+    print("re-derives from the wire transcript. The ARC cells come from ARC's maintainer-run fixture, not from this suite.")
     return 0
 
 

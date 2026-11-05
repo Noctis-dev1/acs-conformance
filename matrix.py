@@ -1,5 +1,5 @@
 """
-T1–T10 reconciliation matrix — the OWASP §5.1 delegated-authority test cases made
+T1–T10 reconciliation matrix — the OWASP AIMM Pillar 2 §5.1 delegated-authority test cases made
 executable and measured over the ACS wire.
 
 The §5.1 discussion produced a set of reconciliation test cases (Paolo Costanzo's T1–T7,
@@ -490,7 +490,7 @@ def main():
                    "boundary_conformance": bconf_rows, "comparison": comparison_rows,
                    "ledger": ledger_rows}, f, indent=2)
 
-    print("T1–T10 reconciliation matrix (OWASP §5.1 delegated-authority), measured over the ACS wire\n")
+    print("T1–T10 reconciliation matrix (OWASP AIMM Pillar 2 §5.1 delegated-authority), measured over the ACS wire\n")
     order = ["T1", "T2", "T3", "T4a", "T4b", "T5", "T6", "T7", "T8", "T9", "T10"]
     disp = {"EXPECTED-MISS": "E-MISS"}
     def row(policy):
