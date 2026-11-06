@@ -91,6 +91,49 @@ def tool_call_request(tool_name: str, arguments: dict, *, session_id: str, **kw)
     return build_request("steps/toolCallRequest", payload, session_id=session_id, **kw)
 
 
+# hooks/tool-call-result.json requires tool{name}, exit_status and outputs[{value}], and has
+# since the canonical v0.1.0 import. The suite's reconciliation status (committed, non_effect,
+# unresolved, partial, and the stage reports queued/dispatched/resource_accepted) has no ACS
+# field, so it rides as harness fields beside the required ones (the schema does not forbid
+# additional properties) and as the first output's value. exit_status is the closest v0.1.0
+# value: a stage report means the stage was reached, so it maps to success.
+RESULT_EXIT_STATUS = {
+    "committed": "success", "partial": "success", "late_fill": "success", "key_closed": "success",
+    "queued": "success", "dispatched": "success", "resource_accepted": "success",
+    "non_effect": "failure", "failed": "failure",
+    "unresolved": "timeout",
+}
+RESULT_REQUIRED = ("tool", "exit_status", "outputs")
+
+
+def tool_call_result_payload(tool_name: str, grant_id: str, operation_id: str, status: str,
+                             observed: int | None = None) -> dict:
+    """A schema-valid steps/toolCallResult payload carrying the suite's harness fields."""
+    payload = {
+        "tool": {"name": tool_name},
+        "exit_status": RESULT_EXIT_STATUS[status],
+        "outputs": [{"value": {"status": status} if observed is None
+                     else {"status": status, "observed": observed}}],
+        "grant_id": grant_id, "operation_id": operation_id, "status": status,
+    }
+    if observed is not None:
+        payload["observed"] = observed
+    return payload
+
+
+def result_payload_errors(payload: dict) -> list[str]:
+    """Structural check of a toolCallResult payload against the v0.1.0 required fields."""
+    errs = [f"missing required '{k}'" for k in RESULT_REQUIRED if k not in payload]
+    if not isinstance((payload.get("tool") or {}).get("name"), str):
+        errs.append("tool.name must be a string")
+    if payload.get("exit_status") not in ("success", "failure", "timeout", "blocked"):
+        errs.append(f"exit_status {payload.get('exit_status')!r} not in the v0.1.0 enum")
+    outs = payload.get("outputs")
+    if not isinstance(outs, list) or not all(isinstance(o, dict) and "value" in o for o in outs):
+        errs.append("outputs must be an array of objects with 'value'")
+    return errs
+
+
 class WireError(Exception):
     """Transport- or protocol-level failure talking to the Guardian."""
 

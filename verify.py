@@ -119,6 +119,21 @@ def verify_matrix():
             cells.append(f"{case}={recomputed}" + ("" if good else f"!=sc({r['verdict']})"))
         print(f"  {policy:<13}{'  '.join(cells)}")
 
+    # independent copy of the v0.1.0 hooks/tool-call-result.json required fields — do not
+    # trust the wire module that built the payloads
+    EXIT = ("success", "failure", "timeout", "blocked")
+    bad = []
+    results = [t for t in tx if t["ev"] == "result"]
+    for t in results:
+        p = t.get("payload") or {}
+        if not (isinstance((p.get("tool") or {}).get("name"), str) and p.get("exit_status") in EXIT
+                and isinstance(p.get("outputs"), list)
+                and all(isinstance(o, dict) and "value" in o for o in p["outputs"])):
+            bad.append(f"{t['policy']}/{t['case']}/{t['op']}/{t['status']}")
+    print(f"  toolCallResult payloads with the v0.1.0 required fields: {len(results) - len(bad)}/{len(results)}"
+          + ("" if not bad else f"  (first bad: {bad[0]})"))
+    ok = ok and not bad and bool(results)
+
     def erp_sum(evs):                       # non-idempotent ledger: every commit counts
         return sum(e["amount"] for e in evs if e["ev"] == "erp_commit")
 

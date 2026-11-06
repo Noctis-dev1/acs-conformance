@@ -79,12 +79,10 @@ class Client:
         return d
 
     def result(self, case, op, status, observed=None):
-        payload = {"grant_id": case, "operation_id": op, "status": status}
-        if observed is not None:
-            payload["observed"] = observed
+        payload = w.tool_call_result_payload("budget.consume", case, op, status, observed)
         env = w.build_request("steps/toolCallResult", payload, session_id=self.session)
         self.c.call(env)
-        self._rec(case=case, ev="result", op=op, status=status, observed=observed)
+        self._rec(case=case, ev="result", op=op, status=status, observed=observed, payload=payload)
 
     def control(self, method, case, **kw):
         env = w.build_request(method, {"grant_id": case, **kw}, session_id=self.session)

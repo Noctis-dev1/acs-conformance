@@ -83,7 +83,7 @@ def consume(client: w.GuardianClient, session, operation_id, amount, policy, sce
 
 def send_result(client: w.GuardianClient, session, operation_id, status):
     env = w.build_request("steps/toolCallResult",
-                          {"grant_id": GRANT, "operation_id": operation_id, "status": status},
+                          w.tool_call_result_payload("budget.consume", GRANT, operation_id, status),
                           session_id=session)
     client.call(env)
 
