@@ -18,7 +18,7 @@ The Guardian and ledger columns below are measured by this suite and re-derived 
 
 ## T4: authority-basis drift
 
-T4 splits on exactly what changes, and the split is entirely an ARC-side distinction. The Guardian records the underlying definition digest at admission and checks it at the commitment boundary, so it catches the drift in both sub-cases. What differs is whether ARC's declaration-time subject moved.
+T4 splits on exactly what changes, and the split is entirely an ARC-side distinction. The Guardian records the underlying definition digest at admission and checks it when the operation is first reported dispatched, so it catches the drift in both sub-cases. The check is keyed to the dispatch report, not to the declared commitment boundary; the two coincide only at the default boundary (`dispatch`), which is the one these cases run under. What differs is whether ARC's declaration-time subject moved.
 
 | Sub-case | ARC (declaration time) | Guardian (commitment boundary) | Independent ledger |
 |---|---|---|---|
@@ -37,7 +37,7 @@ Partial fulfilment and late-arriving effects are runtime and effect phenomena. A
 
 ## What the comparison shows
 
-Three independent layers, each with a ceiling, each catching what the others cannot. ARC confirms declaration consistency and invalidates stale bindings before execution, and by its documented G1 construction it does not see an underlying-definition change. The Guardian holds the authority at the commitment boundary and catches that underlying change, and it enforces nothing about declaration consistency. The independent ledger confirms the effect that actually landed, and decides nothing. An ARC PASS grants no execution authority, and a Guardian decision validates no declaration. The value is in the distance between the layers, not in one checking another.
+Three independent layers, each with a ceiling, each catching what the others cannot. ARC confirms declaration consistency and invalidates stale bindings before execution, and by its documented G1 construction it does not see an underlying-definition change. The Guardian holds the authority at the commitment boundary and catches that underlying change at dispatch, and it enforces nothing about declaration consistency. The independent ledger confirms the effect that actually landed, and decides nothing. An ARC PASS grants no execution authority, and a Guardian decision validates no declaration. The value is in the distance between the layers, not in one checking another.
 
 ## Reproduce
 
