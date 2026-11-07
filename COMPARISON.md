@@ -18,7 +18,7 @@ The Guardian and ledger columns below are measured by this suite and re-derived 
 
 ## T4: authority-basis drift
 
-T4 splits on exactly what changes, and the split is entirely an ARC-side distinction. The Guardian records the underlying definition digest at admission and checks it when the operation is first reported dispatched, so it catches the drift in both sub-cases. The check is keyed to the dispatch report, not to the declared commitment boundary; the two coincide only at the default boundary (`dispatch`), which is the one these cases run under. What differs is whether ARC's declaration-time subject moved.
+T4 splits on exactly what changes, and the split is entirely an ARC-side distinction. The Guardian records the underlying definition digest at admission and checks it when the operation is first reported dispatched, so it catches the drift in both sub-cases. The check is keyed to the dispatch report, not to the declared commitment boundary; the two coincide only at the default boundary (`dispatch`), which is the one these cases run under. That reply is an acknowledgement, not a pre-forward permit; the T4 pilot uses a separate pre-forward mode, described in [PREFORWARD.md](PREFORWARD.md). What differs is whether ARC's declaration-time subject moved.
 
 | Sub-case | ARC (declaration time) | Guardian (commitment boundary) | Independent ledger |
 |---|---|---|---|
