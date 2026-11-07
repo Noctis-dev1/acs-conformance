@@ -327,7 +327,8 @@ def main():
     import hashlib
     man = {"limit": LIMIT, "src_sha256": {}}
     for src in ("acs_wire.py", "acs_sig.py", "run_conformance.py", os.path.join("mock_guardians", "guardian.py"),
-                os.path.join("mock_guardians", "reconciling.py"), "matrix.py", "comparison.py", "verify.py"):
+                os.path.join("mock_guardians", "reconciling.py"), "matrix.py", "comparison.py",
+                "preforward.py", "verify.py"):
         p = os.path.join(HERE, src)
         if os.path.exists(p):
             man["src_sha256"][src] = hashlib.sha256(open(p, "rb").read()).hexdigest()

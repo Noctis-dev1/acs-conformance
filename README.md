@@ -12,6 +12,7 @@ Built in response to [issue #311](https://github.com/GenAI-Security-Project/agen
 ```
 python3 run_conformance.py --selftest          # Layer A + B against the three bundled mock Guardians
 python3 matrix.py                              # the T1–T10 reconciliation matrix (OWASP AIMM Pillar 2 §5.1 cases)
+python3 preforward.py                          # the T4 pilot's pre-forward R1 (Test Contract V0.3), P0–P11
 python3 verify.py                              # re-derive every verdict from the wire transcripts
 python3 run_conformance.py --guardian-url http://localhost:8787/acs   # point Layer A/B at a real Guardian
 ```
@@ -46,6 +47,10 @@ The boundary-conformance invariant enforces the condition §5.1 settled: a Guard
 ## Comparison with ARC (declaration-time)
 
 [ARC (Agent Role Contracts)](https://github.com/suirindo/agent-role-contracts) checks declaration consistency before execution; this suite measures runtime enforcement and the actual effect. They are complementary layers, and [COMPARISON.md](COMPARISON.md) lays the two against each other over T4 (authority-basis drift) and T8 (partial fulfilment), with an independent ledger as the third column. The Guardian and ledger columns are measured by `comparison.py` from the verified matrix results; the ARC column is taken from ARC's merged, maintainer-run fixture (pinned in COMPARISON.md) and has been reproduced by Noctis against the published tarball, but not yet by a party outside both projects. The sharp case is an underlying tool-definition change under an unchanged declaration: ARC cannot see it by construction, a `declaration-bound` Guardian misses it too, and only a definition-binding Guardian catches it; the runtime analogue of the declaration-time blind spot, measured here.
+
+## The T4 pilot: pre-forward R1
+
+The joint T4 pilot (ARC × Guardian × ERP, Test Contract V0.3) needs the Guardian's decision before the gateway sends anything to the ERP. The matrix runs R1 on a `dispatched` result report, whose reply is an acknowledgement, so it cannot serve as a pre-forward permit. `preforward.py` measures the replacement: R1 on a pre-forward `steps/toolCallRequest`, a reference gateway that forwards only on a valid `allow` for the same attempt, and thirteen cases covering C0, C2 and C3, a retry after HELD, a post-persistence 409, the recorded-only extra case, six fail-closed drills, and a measured reproduction of the dispatch-report acknowledgement gap. Every message validates against the official v0.1.0 schemas (`tools/schema_check.py`, optional, needs `jsonschema`). Design, results and limits in [PREFORWARD.md](PREFORWARD.md).
 
 ## Running it against the real reference Guardian
 

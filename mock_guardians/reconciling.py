@@ -57,9 +57,20 @@ runner drive the scenarios and read ground state:
   control/setLimit    {grant_id, new_limit}
   control/revoke      {grant_id}
   control/setBoundary {grant_id, boundary}   (queue_admission|dispatch|resource_acceptance|transaction_commit)
-  control/setBasis    {grant_id, definition_digest?, enforce?, behaviour?}
+  control/setBasis    {grant_id, definition_digest?, enforce?, behaviour?, r1_mode?}
+  control/presentBasis {grant_id, operation_id, attempt_id, definition_digest, provenance?}
   control/state       {grant_id} -> {limit, revoked, commitment_boundary, definition_digest,
-                                     behaviour_tag, consumed, outstanding, reservations, flags}
+                                     behaviour_tag, r1_mode, consumed, outstanding, reservations, flags}
+
+Pre-forward R1 (r1_mode "pre_forward", the T4 pilot; preforward.py drives it): the gateway asks
+over steps/toolCallRequest for demo_erp_create_order, with its orchestration identity in
+params.metadata.x_pilot_orchestration {grant_id, operation_id, attempt_id, stage}. Stage
+"admission" is A1 (reserve, record the digest); stage "pre_forward" is R1, answered before any
+send: allow (permit this attempt), ask with basis_reauth_required (HELD, the digest changed and
+enforcement is on), or deny (no basis presented, replayed attempt, unknown or non-reserved
+operation). The digest itself travels out of band through control/presentBasis, because ACS
+v0.1.0 has no field for it. In the default "dispatch_report" mode the T1-T10 behaviour is
+unchanged.
 
 Run one:  python3 reconciling.py --policy reconciling --port 8810
 """
@@ -72,6 +83,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ACS_VERSION = "0.1.0"
 DEFAULT_LIMIT = 100
+PILOT_TOOL = "demo_erp_create_order"   # the T4 pilot's tool (Test Contract V0.3 §3)
 
 # reservation states
 RESERVED, COMMITTED, NON_EFFECT, RELEASED, HELD, PARTIAL = (
@@ -138,6 +150,12 @@ class Grant:
         self.cur_def_digest = "def-v1"
         self.commitment_boundary = "dispatch"     # declared per grant; default matches base T1-T7
         self.behaviour_tag = "b1"                  # ground-truth server behaviour; a digest does NOT attest it
+        # where R1 runs: "dispatch_report" (the T1-T10 matrix: on a dispatched toolCallResult,
+        # whose reply is an acknowledgement) or "pre_forward" (the T4 pilot: on a pre-forward
+        # toolCallRequest, whose reply is the decision the gateway enforces before any send)
+        self.r1_mode = "dispatch_report"
+        self.presented: dict[tuple, dict] = {}     # (op_id, attempt_id) -> out-of-band basis record
+        self.used_attempts: set[str] = set()
         self.reservations: dict[str, dict] = {}   # op_id -> {amount,state,stage,def_digest,release_reason,committed_amount,residual,flag}
         self.order: list[str] = []
         self.flags: list[dict] = []
@@ -216,7 +234,8 @@ class Policy:
             if status in ("queued", "dispatched", "resource_accepted"):
                 if r["state"] != RESERVED:
                     return
-                if (status == "dispatched" and self.b.get("bind_definition", True)
+                if (status == "dispatched" and g.r1_mode == "dispatch_report"
+                        and self.b.get("bind_definition", True)
                         and r["def_digest"] != g.cur_def_digest):
                     # authority-basis drift checked at first dispatch — only by a Guardian that
                     # binds the underlying definition; a declaration-bound Guardian skips this and
@@ -230,6 +249,9 @@ class Policy:
                 r["stage"] = status                     # advance along the execution pipeline
             elif status == "committed":
                 prior = r["state"]
+                if g.r1_mode == "pre_forward" and not r.get("permit"):
+                    # an effect reported for an operation the Guardian never permitted to forward
+                    g.add_flag("result_without_permit", f"{operation_id}: committed with no pre-forward allow")
                 r["state"] = COMMITTED
                 r["stage"] = "committed"
                 if g.revoked:
@@ -338,7 +360,8 @@ class Policy:
                 g.commitment_boundary = boundary
             return {"commitment_boundary": g.commitment_boundary}
 
-    def set_basis(self, session, grant_id, definition_digest=None, enforce=None, behaviour=None):
+    def set_basis(self, session, grant_id, definition_digest=None, enforce=None, behaviour=None,
+                  r1_mode=None):
         with self.lock:
             g = self._grant(session, grant_id)
             if definition_digest is not None:
@@ -347,8 +370,74 @@ class Policy:
                 g.enforce_basis = bool(enforce)
             if behaviour is not None:
                 g.behaviour_tag = behaviour      # ground-truth drift; NOT consulted by any decision
+            if r1_mode in ("dispatch_report", "pre_forward"):
+                g.r1_mode = r1_mode
             return {"definition_digest": g.cur_def_digest, "enforce_basis": g.enforce_basis,
-                    "behaviour_tag": g.behaviour_tag}
+                    "behaviour_tag": g.behaviour_tag, "r1_mode": g.r1_mode}
+
+    # ---- pre-forward R1 (T4 pilot) -------------------------------------------------------
+    # The definition digest is not an ACS v0.1.0 field, so it arrives out of band, keyed by
+    # (operation_id, attempt_id), and is consumed by the one toolCallRequest it belongs to.
+    def present_basis(self, session, grant_id, operation_id, attempt_id, digest, provenance=None):
+        with self.lock:
+            g = self._grant(session, grant_id)
+            g.presented[(operation_id, attempt_id)] = {"digest": digest, "provenance": provenance or {}}
+            return {"presented": True, "operation_id": operation_id, "attempt_id": attempt_id}
+
+    def decide_pilot(self, session, grant_id, operation_id, attempt_id, stage, amount):
+        """A1 admission or R1 pre-forward decision for one attempt. Returns (decision, why,
+        codes). Decision, digest comparison and the reservation state change happen under one
+        lock, in the call the gateway is waiting on, so there is no separate state read for
+        the gateway to race against."""
+        with self.lock:
+            g = self._grant(session, grant_id)
+            if g.r1_mode != "pre_forward":
+                return "deny", "pre-forward R1 is not enabled for this grant", ["pre_forward_mode_not_enabled"]
+            if g.revoked:
+                return "deny", "grant revoked", ["grant_revoked"]
+            if not operation_id or not attempt_id:
+                return "deny", "orchestration identity incomplete", ["identity_missing"]
+            if attempt_id in g.used_attempts:
+                return "deny", f"attempt {attempt_id} already decided", ["attempt_replayed"]
+            basis = g.presented.pop((operation_id, attempt_id), None)
+            g.used_attempts.add(attempt_id)
+            if basis is None:
+                return "deny", "no definition basis presented for this attempt", ["basis_not_presented"]
+            r = g.reservations.get(operation_id)
+
+            if stage == "admission":                      # A1
+                if r is not None:
+                    return "deny", "operation already admitted", ["operation_exists"]
+                if not isinstance(amount, int) or amount <= 0:
+                    return "deny", "amount must be a positive integer", ["amount_invalid"]
+                avail = g.limit - g.committed_total() - g.outstanding_total()
+                if amount > avail:
+                    return "deny", "reservation would exceed the grant", ["cumulative_limit_exceeded"]
+                g.reservations[operation_id] = {"amount": amount, "state": RESERVED, "stage": "reserved",
+                                                "def_digest": basis["digest"], "release_reason": None,
+                                                "committed_amount": None, "residual": 0,
+                                                "a1_attempt": attempt_id}
+                g.order.append(operation_id)
+                # an admission allow reserves Q; it is NOT a permit to forward
+                return "allow", "admitted at A1: reserved against the grant, not a forward permit", ["a1_admitted"]
+
+            if stage != "pre_forward":
+                return "deny", f"unknown pilot stage {stage!r}", ["stage_unknown"]
+            if r is None:
+                return "deny", "operation was never admitted", ["operation_unknown"]
+            if r["state"] != RESERVED or r.get("permit"):
+                return "deny", f"reservation is {r['state']}, not forwardable", [f"reservation_{r['state']}"]
+            if self.b.get("bind_definition", True) and basis["digest"] != r["def_digest"]:
+                if g.enforce_basis:
+                    r["state"] = HELD                     # hold for reauthorization; no forward
+                    r["release_reason"] = "basis_reauth_required"
+                    return "ask", "definition digest at R1 differs from the A1 digest", ["basis_reauth_required"]
+                g.add_flag("basis_mismatch", f"{operation_id}: definition digest drifted (recorded, not enforced)")
+                r["flag"] = "basis_mismatch"
+            # a declaration-bound Guardian (bind_definition=False) never compares the digest
+            r["permit"] = {"attempt_id": attempt_id, "digest": basis["digest"]}
+            r["stage"] = "dispatched"                     # permitted for dispatch: past the default boundary
+            return "allow", "pre-forward permit for this attempt", ["r1_permit"]
 
     def state(self, session, grant_id):
         with self.lock:
@@ -356,11 +445,13 @@ class Policy:
             return {"limit": g.limit, "revoked": g.revoked,
                     "commitment_boundary": g.commitment_boundary,
                     "definition_digest": g.cur_def_digest, "behaviour_tag": g.behaviour_tag,
+                    "r1_mode": g.r1_mode,
                     "consumed": g.committed_total(), "outstanding": g.outstanding_total(),
                     "reservations": {op: {"amount": r["amount"], "state": r["state"],
                                           "stage": r.get("stage", "reserved"),
                                           "committed_amount": r.get("committed_amount"),
-                                          "residual": r.get("residual", 0)}
+                                          "residual": r.get("residual", 0),
+                                          "permit_attempt": (r.get("permit") or {}).get("attempt_id")}
                                      for op, r in g.reservations.items()},
                     "flags": list(g.flags)}
 
@@ -384,6 +475,12 @@ class Handler(BaseHTTPRequestHandler):
             result["reasoning"] = reasoning
         if codes:
             result["reason_codes"] = codes
+        if decision == "ask":
+            # HELD is carried as `ask`: the basis changed, so the operation needs re-approval.
+            # The pilot has no approver, so the documented outcome on timeout is deny.
+            result["ask_details"] = {"approver": {"type": "human", "id": "pilot-reapproval"},
+                                     "question": "The tool definition changed after approval. Re-approve this operation?",
+                                     "timeout_seconds": 300, "timeout_disposition": "deny"}
         return {"jsonrpc": "2.0", "id": req_id, "result": result}
 
     def _ok(self, req_id, data):
@@ -425,6 +522,12 @@ class Handler(BaseHTTPRequestHandler):
                 d, why, codes = pol.decide_consume(session, args.get("grant_id"),
                                                    args.get("operation_id"), args.get("amount"))
                 return self._send(self._acs(req_id, acs_rid, d, why, codes))
+            orch = meta.get("x_pilot_orchestration")
+            if tool == PILOT_TOOL and isinstance(orch, dict):
+                q = args.get("quantity")
+                d, why, codes = pol.decide_pilot(session, orch.get("grant_id"), orch.get("operation_id"),
+                                                 orch.get("attempt_id"), orch.get("stage"), q)
+                return self._send(self._acs(req_id, acs_rid, d, why, codes))
             return self._send(self._acs(req_id, acs_rid, "deny", "unknown tool", ["unknown_tool"]))
 
         if method == "steps/toolCallResult":
@@ -445,7 +548,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(self._ok(req_id, pol.set_basis(session, payload.get("grant_id"),
                                                             payload.get("definition_digest"),
                                                             payload.get("enforce"),
-                                                            payload.get("behaviour"))))
+                                                            payload.get("behaviour"),
+                                                            payload.get("r1_mode"))))
+        if method == "control/presentBasis":
+            return self._send(self._ok(req_id, pol.present_basis(session, payload.get("grant_id"),
+                                                                payload.get("operation_id"),
+                                                                payload.get("attempt_id"),
+                                                                payload.get("definition_digest"),
+                                                                payload.get("provenance"))))
         if method == "control/state":
             return self._send(self._ok(req_id, pol.state(session, payload.get("grant_id"))))
 

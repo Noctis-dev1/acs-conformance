@@ -34,6 +34,126 @@ def classify(scenario, committed, exec_count, reason):
     return "?"
 
 
+def verify_preforward():
+    """Re-derive every T4-pilot pre-forward verdict from preforward_transcript.jsonl, and the
+    V0.3 D0/D1 digests from the recorded canonical bytes, independently of preforward.py.
+    Returns True/False, or None if no pre-forward run is present."""
+    tpath = os.path.join(RES, "preforward_transcript.jsonl")
+    spath = os.path.join(RES, "preforward_scorecard.json")
+    if not (os.path.exists(tpath) and os.path.exists(spath)):
+        return None
+    tx = [json.loads(l) for l in open(tpath) if l.strip()]
+    doc = json.load(open(spath))
+    ok = True
+    print("\nVERIFY  T4 pilot, pre-forward R1 (Test Contract V0.3)")
+    print("  (every verdict re-derived from preforward_transcript.jsonl, not the scorecard)")
+
+    # digests: re-serialize the recorded canonical text with an independent compact sorted
+    # dump (adequate for these ASCII-only, integer-valued fixture objects) and re-hash
+    for t in (t for t in tx if t["ev"] == "digest"):
+        again = json.dumps(json.loads(t["canonical"]), sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=False).encode("utf-8")
+        got = hashlib.sha256(again).hexdigest()
+        good = got == t["published"] == t["record"]["canonical_bytes_sha256"] and again == t["canonical"].encode()
+        ok = ok and good
+        print(f"  {t['label']} sha256 {got}  {'= V0.3' if good else '!= V0.3 ' + t['published']}")
+
+    by = {}
+    for t in tx:
+        by.setdefault(t["case"], []).append(t)
+    EXIT = ("success", "failure", "timeout", "blocked")
+
+    def r1(evs):
+        d = [e for e in evs if e["ev"] == "decide" and e.get("stage") == "pre_forward"]
+        return d[-1] if d else {}
+
+    def erp(evs):
+        reads = [e for e in evs if e["ev"] == "erp_readback"]
+        return sum(r["base_units"] for r in reads[-1]["rows"]) if reads else 0
+
+    def state(evs):
+        return next((e.get("response") or {} for e in reversed(evs)
+                     if e["ev"] == "control" and e.get("method") == "control/state"), {})
+
+    def outcome(e):
+        # independent re-classification of the gateway's view of one R1 reply
+        if "error" in e:
+            return "TIMEOUT" if "timed out" in e["error"].lower() else "ERROR"
+        resp = e.get("response") or {}
+        res = resp.get("result") or {}
+        if (res.get("type") != "final" or "error" in resp
+                or res.get("request_id") != e.get("request_id")):
+            return "INVALID"
+        d, codes = res.get("decision"), res.get("reason_codes") or []
+        if d == "allow":
+            return "ALLOW"
+        if d == "ask":
+            ad = res.get("ask_details") or {}
+            if not (res.get("reasoning") and isinstance(ad.get("approver"), dict)
+                    and ad.get("question") and isinstance(ad.get("timeout_seconds"), int)):
+                return "INVALID"
+            return "HELD" if "basis_reauth_required" in codes else "ASK"
+        return d.upper() if d in ("deny", "defer", "modify") else "INVALID"
+
+    def classify(name, evs):
+        e = r1(evs); o = outcome(e) if e else None; codes = (e.get("response") or {}).get("result", {}).get("reason_codes") or []
+        fwd = [x for x in evs if x["ev"] == "forward"]
+        st = state(evs); flags = [f["type"] for f in st.get("flags", [])]
+        res = st.get("reservations", {}).get(f"op-{name}", {})
+        # a forward must only ever follow an ALLOW for the same attempt
+        if fwd and not (o == "ALLOW" and fwd[0]["attempt"] == e.get("attempt")):
+            return "FAIL"
+        if name == "P0":
+            return "PASS" if o == "ALLOW" and len(fwd) == 1 and erp(evs) == 40 and st.get("consumed") == 40 else "FAIL"
+        if name == "P2":
+            return "PASS" if o == "HELD" and not fwd and erp(evs) == 0 and res.get("state") == "held" else "FAIL"
+        if name == "P2r":
+            ds = [x for x in evs if x["ev"] == "decide" and x.get("stage") == "pre_forward"]
+            return "PASS" if (len(ds) == 2 and outcome(ds[0]) == "HELD" and o == "DENY"
+                              and "reservation_held" in codes and not fwd and erp(evs) == 0
+                              and res.get("state") == "held") else "FAIL"
+        if name in ("P3", "P3b"):
+            http = [x["http_status"] for x in evs if x["ev"] == "erp_http"]
+            good = (o == "ALLOW" and len(fwd) == 1 and fwd[0]["definition"] == "D1" and erp(evs) == 120
+                    and st.get("consumed") == 40 and "basis_mismatch" not in flags)
+            if name == "P3b":
+                good = good and http == [409]
+            return "EXPECTED-MISS" if good else "FAIL"
+        if name == "P4":
+            return "PASS" if o == "ALLOW" and erp(evs) == 120 and "basis_mismatch" in flags else "FAIL"
+        if name == "P5":
+            return "PASS" if o == "DENY" and "basis_not_presented" in codes and not fwd and erp(evs) == 0 else "FAIL"
+        if name == "P6":
+            return "PASS" if o == "DENY" and "attempt_replayed" in codes and not fwd and erp(evs) == 0 else "FAIL"
+        if name in ("P7", "P8"):
+            return "PASS" if o in ("ERROR", "TIMEOUT") and not fwd and erp(evs) == 0 else "FAIL"
+        if name in ("P9", "P10"):
+            return "PASS" if o == "INVALID" and not fwd and erp(evs) == 0 else "FAIL"
+        if name == "P11":
+            ack = next((x for x in evs if x["ev"] == "dispatch_report_ack"), {})
+            held = (st.get("reservations", {}).get("op-B", {}) or {}).get("state") == "held"
+            return "FINDING-REPRODUCED" if ack.get("decision") == "allow" and held else "NOT-REPRODUCED"
+        return "?"
+
+    cells = []
+    for r in doc["cases"]:
+        got = classify(r["case"], by.get(r["case"], []))
+        good = got == r["verdict"]
+        ok = ok and good
+        cells.append(f"{r['case']}={got}" + ("" if good else f"!=sc({r['verdict']})"))
+    for i in range(0, len(cells), 4):
+        print("  " + "  ".join(cells[i:i + 4]))
+
+    results = [t for t in tx if t["ev"] == "result"]
+    bad = [t for t in results if not (
+        isinstance((t["payload"].get("tool") or {}).get("name"), str) and t["payload"].get("exit_status") in EXIT
+        and isinstance(t["payload"].get("outputs"), list)
+        and all(isinstance(o, dict) and "value" in o for o in t["payload"]["outputs"]))]
+    print(f"  toolCallResult payloads with the v0.1.0 required fields: {len(results) - len(bad)}/{len(results)}")
+    ok = ok and not bad
+    return ok
+
+
 def verify_matrix():
     """Re-derive every T1–T10 verdict from matrix_transcript.jsonl, independently of
     matrix_scorecard.json. Returns True/False, or None if no matrix run is present."""
@@ -268,6 +388,10 @@ def main():
     matrix_ok = verify_matrix()          # None if no T1–T7 run is present in results/
     if matrix_ok is not None:
         ok_all = ok_all and matrix_ok
+
+    pre_ok = verify_preforward()         # None if no T4-pilot pre-forward run is present
+    if pre_ok is not None:
+        ok_all = ok_all and pre_ok
 
     # §10 key derivation: our HKDF must reproduce the ACS §10 published test vector. The
     # expected key is the spec's own constant, held here independently of acs_sig.

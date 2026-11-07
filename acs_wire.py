@@ -107,7 +107,7 @@ RESULT_REQUIRED = ("tool", "exit_status", "outputs")
 
 
 def tool_call_result_payload(tool_name: str, grant_id: str, operation_id: str, status: str,
-                             observed: int | None = None) -> dict:
+                             observed: int | None = None, request_id_ref: str | None = None) -> dict:
     """A schema-valid steps/toolCallResult payload carrying the suite's harness fields."""
     payload = {
         "tool": {"name": tool_name},
@@ -118,6 +118,8 @@ def tool_call_result_payload(tool_name: str, grant_id: str, operation_id: str, s
     }
     if observed is not None:
         payload["observed"] = observed
+    if request_id_ref is not None:
+        payload["request_id_ref"] = request_id_ref
     return payload
 
 
