@@ -52,6 +52,10 @@ The boundary-conformance invariant enforces the condition §5.1 settled: a Guard
 
 The joint T4 pilot (ARC × Guardian × ERP, Test Contract V0.3) needs the Guardian's decision before the gateway sends anything to the ERP. The matrix runs R1 on a `dispatched` result report, whose reply is an acknowledgement, so it cannot serve as a pre-forward permit. `preforward.py` measures the replacement: R1 on a pre-forward `steps/toolCallRequest`, a reference gateway that forwards only on a valid `allow` for the same attempt, and thirteen cases covering C0, C2 and C3, a retry after HELD, a post-persistence 409, the recorded-only extra case, six fail-closed drills, and a measured reproduction of the dispatch-report acknowledgement gap. Every message validates against the official v0.1.0 schemas (`tools/schema_check.py`, optional, needs `jsonschema`). Design, results and limits in [PREFORWARD.md](PREFORWARD.md).
 
+## Requirement IDs
+
+Every case is mapped to the draft ACS normative-requirement ledger from issue #33 in [CROSSWALK.md](CROSSWALK.md). The suite cites the ledger's IDs and mints none of its own. Six of the eight protocol checks test a ledger requirement directly; the grant, reconciliation and pre-forward cases test guarantees v0.1.0 does not yet state as a MUST.
+
 ## Running it against the real reference Guardian
 
 The suite is the instrument; the AGT reference Guardian is a target. See [REFERENCE_GUARDIAN.md](REFERENCE_GUARDIAN.md) for standing the reference Guardian up in an isolated container and pointing the suite at it.
