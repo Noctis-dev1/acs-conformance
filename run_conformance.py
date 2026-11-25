@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -362,6 +363,15 @@ def main():
         print(n)
     print(f"\nFrozen evidence in {RES}/  —  verify with: python3 verify.py")
 
+    # CI gate: a hard Layer A protocol failure (ok is False) fails the process. A PENDING
+    # check (ok is None: system/ping, or §10 when no signature algorithm is advertised) is
+    # an open observation, not a failure, so it does not gate.
+    hard_fail = [c["check"] for c in scorecards[0]["protocol"] if c["ok"] is False]
+    if hard_fail:
+        print(f"\nFAIL: {len(hard_fail)} Layer A protocol check(s) failed: {hard_fail}")
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
